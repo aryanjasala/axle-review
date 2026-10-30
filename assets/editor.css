@@ -1,0 +1,70 @@
+/* Axle Review: editor panels. */
+.axr-links,
+.axr-gate-notes,
+.axr-activity {
+	margin: 0 0 12px;
+	padding: 0;
+	list-style: none;
+}
+
+.axr-link {
+	margin: 0 0 12px;
+	padding: 0 0 8px;
+	border-bottom: 1px solid #ddd;
+}
+
+.axr-link p {
+	margin: 0 0 4px;
+}
+
+.axr-link__status,
+.axr-link__meta,
+.axr-muted {
+	color: #50575e;
+}
+
+.axr-link--revoked .axr-link__head,
+.axr-link--expired .axr-link__head {
+	color: #50575e;
+}
+
+.axr-link__actions {
+	display: flex;
+	gap: 12px;
+}
+
+.axr-create .components-base-control {
+	margin-bottom: 12px;
+}
+
+.axr-create__title {
+	margin: 16px 0 8px;
+	font-size: 13px;
+	font-weight: 600;
+}
+
+.axr-new-url {
+	margin: 0 0 12px;
+}
+
+.axr-new-url .components-base-control {
+	margin: 8px 0;
+}
+
+.axr-share__all {
+	margin: 12px 0 0;
+}
+
+.axr-share__all a {
+	display: inline-block;
+	padding: 4px 0;
+	line-height: 1.5;
+}
+
+.axr-gate-notes li {
+	margin: 0 0 8px;
+}
+
+.axr-override {
+	margin-top: 12px;
+}

@@ -1,0 +1,147 @@
+{
+  "$comment": "Screens tests/e2e/a11y.spec.js checks with axe-core. This file belongs to the plugin: apply-template.py only writes it when it is missing. The fields are described in docs/DEVELOPMENT.md.",
+  "include": ["#wpbody-content"],
+  "exclude": [],
+  "screens": [
+    {
+      "name": "Dashboard > Notes, nothing open",
+      "setup": [{ "js": "seed.js", "call": "seedEmpty" }],
+      "url": "/wp-admin/index.php?page=axle-review-notes"
+    },
+    {
+      "name": "Dashboard > Notes with reviewer notes",
+      "setup": [{ "js": "seed.js", "call": "seedReview", "save": "s" }],
+      "url": "/wp-admin/index.php?page=axle-review-notes",
+      "steps": [{ "waitFor": ".axr-inbox tbody tr" }],
+      "cleanup": [{ "js": "seed.js", "call": "unseedReview" }]
+    },
+    {
+      "name": "Dashboard > Notes, replying inline",
+      "setup": [{ "js": "seed.js", "call": "seedReview", "save": "s" }],
+      "url": "/wp-admin/index.php?page=axle-review-notes&view=all",
+      "steps": [{ "click": ".axr-reply summary" }, { "waitFor": ".axr-reply textarea" }],
+      "cleanup": [{ "js": "seed.js", "call": "unseedReview" }]
+    },
+    {
+      "name": "Tools > Review Links, no links",
+      "setup": [{ "js": "seed.js", "call": "seedEmpty" }],
+      "url": "/wp-admin/tools.php?page=axle-review-links"
+    },
+    {
+      "name": "Tools > Review Links with links and the create form",
+      "setup": [{ "js": "seed.js", "call": "seedReview", "save": "s" }],
+      "url": "/wp-admin/tools.php?page=axle-review-links&post_id={s.menu}",
+      "steps": [{ "waitFor": ".axr-card" }],
+      "cleanup": [{ "js": "seed.js", "call": "unseedReview" }]
+    },
+    {
+      "name": "Tools > Review Links, a new link shown once",
+      "setup": [{ "js": "seed.js", "call": "seedReview", "save": "s" }],
+      "url": "/wp-admin/tools.php?page=axle-review-links&post_id={s.shipping}",
+      "steps": [{ "fill": "#axr-label", "value": "Press" }, { "click": ".axr-card input[type=submit]" }, { "waitFor": ".axr-new-link" }],
+      "cleanup": [{ "js": "seed.js", "call": "unseedReview" }]
+    },
+    {
+      "name": "Tools > Review Links, paused",
+      "setup": [{ "js": "seed.js", "call": "seedReview", "save": "s" }, ["axle-review", "link", "pause"]],
+      "url": "/wp-admin/tools.php?page=axle-review-links",
+      "cleanup": [["axle-review", "link", "resume"], { "js": "seed.js", "call": "unseedReview" }]
+    },
+    {
+      "name": "A link's activity",
+      "setup": [{ "js": "seed.js", "call": "seedReview", "save": "s" }],
+      "url": "/wp-admin/tools.php?page=axle-review-links&activity={s.legal.id}",
+      "steps": [{ "waitFor": ".axr-activity" }],
+      "cleanup": [{ "js": "seed.js", "call": "unseedReview" }]
+    },
+    {
+      "name": "Settings > Writing > Review",
+      "setup": [{ "js": "seed.js", "call": "seedEmpty" }],
+      "url": "/wp-admin/options-writing.php",
+      "include": ["#axle-review"]
+    },
+    {
+      "name": "Profile: note emails",
+      "url": "/wp-admin/profile.php",
+      "include": [".axr-profile"]
+    },
+    {
+      "name": "Posts list: the Notes column",
+      "setup": [{ "js": "seed.js", "call": "seedReview", "save": "s" }],
+      "url": "/wp-admin/edit.php?post_status=draft&post_type=post",
+      "include": [".column-axr_notes"],
+      "cleanup": [{ "js": "seed.js", "call": "unseedReview" }]
+    },
+    {
+      "name": "Editor: the Share for review panel",
+      "setup": [{ "js": "seed.js", "call": "seedReview", "save": "s" }],
+      "editor": "{s.menu}",
+      "steps": [{ "evaluate": "(() => { wp.data.dispatch( 'core/edit-post' ).openGeneralSidebar( 'edit-post/document' ); if ( ! wp.data.select( 'core/editor' ).isEditorPanelOpened( 'axle-review/axle-review-share' ) ) { wp.data.dispatch( 'core/editor' ).toggleEditorPanelOpened( 'axle-review/axle-review-share' ); } })()" }, { "waitFor": ".axr-share .axr-link" }],
+      "include": [".axr-share"],
+      "cleanup": [{ "js": "seed.js", "call": "unseedReview" }]
+    },
+    {
+      "name": "Editor: a new link shown once",
+      "setup": [{ "js": "seed.js", "call": "seedReview", "save": "s" }],
+      "editor": "{s.shipping}",
+      "steps": [{ "evaluate": "(() => { wp.data.dispatch( 'core/edit-post' ).openGeneralSidebar( 'edit-post/document' ); if ( ! wp.data.select( 'core/editor' ).isEditorPanelOpened( 'axle-review/axle-review-share' ) ) { wp.data.dispatch( 'core/editor' ).toggleEditorPanelOpened( 'axle-review/axle-review-share' ); } })()" }, { "waitFor": ".axr-share .axr-create" }, { "click": ".axr-create__submit" }, { "waitFor": ".axr-new-url" }],
+      "include": [".axr-share"],
+      "cleanup": [{ "js": "seed.js", "call": "unseedReview" }]
+    },
+    {
+      "name": "Editor: open notes before publishing",
+      "setup": [{ "js": "seed.js", "call": "seedReview", "save": "s" }, ["option", "update", "axle_review_settings", "{\"gate_enabled\":true}", "--format=json"]],
+      "editor": "{s.menu}",
+      "steps": [{ "click": ".editor-post-publish-panel__toggle, .editor-post-publish-button__button" }, { "waitFor": ".axr-gate-panel .axr-override" }],
+      "include": [".axr-gate-panel"],
+      "cleanup": [{ "js": "seed.js", "call": "unseedReview" }]
+    },
+    {
+      "name": "Review page: the toolbar",
+      "setup": [{ "js": "seed.js", "call": "seedLink", "save": "link" }],
+      "loggedOut": true,
+      "url": "{link.path}",
+      "steps": [{ "waitFor": "#axr-toolbar" }],
+      "include": ["#axr-toolbar"]
+    },
+    {
+      "name": "Review page: leaving a note",
+      "setup": [{ "js": "seed.js", "call": "seedLink", "save": "link" }],
+      "loggedOut": true,
+      "url": "{link.path}",
+      "steps": [{ "click": "#axr-note-mode" }, { "click": "[data-axr-block=\"2\"]" }, { "waitFor": ".axr-popover" }],
+      "include": ["#axr-toolbar", ".axr-popover"]
+    },
+    {
+      "name": "Review page: notes I left, with a reply",
+      "setup": [{ "js": "seed.js", "call": "seedLinkWithNote", "save": "link" }],
+      "loggedOut": true,
+      "url": "{link.path}",
+      "steps": [{ "evaluate": "window.sessionStorage.setItem( 'axr-name-' + window.axleReviewGuest.link, 'Priya' )" }, { "click": "#axr-my-notes" }, { "waitFor": ".axr-panel .axr-thread" }],
+      "include": [".axr-panel"]
+    },
+    {
+      "name": "Review page: email code form",
+      "setup": [{ "js": "seed.js", "call": "seedLockedLink", "save": "link" }],
+      "loggedOut": true,
+      "url": "{link.path}",
+      "include": ["#axr-gate"]
+    },
+    {
+      "name": "Review page: wrong code",
+      "setup": [{ "js": "seed.js", "call": "seedLockedLink", "save": "link" }],
+      "loggedOut": true,
+      "url": "{link.path}",
+      "steps": [{ "fill": "#axr-code", "value": "000000" }, { "click": "form:has(#axr-code) button" }, { "waitFor": ".axr-gate__error" }],
+      "include": ["#axr-gate"]
+    },
+    {
+      "name": "Review page: link turned off",
+      "setup": [{ "js": "seed.js", "call": "seedRevokedLink", "save": "link" }],
+      "loggedOut": true,
+      "url": "{link.path}",
+      "include": ["#axr-gate"]
+    }
+  ],
+  "skip": {}
+}
