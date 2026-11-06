@@ -40,7 +40,7 @@ Draft link plugins let them read the draft. Feedback plugins let them comment, i
 
 Free and open source under the GPL. No pro version, no upsells, no ads in wp-admin, no tracking. And it stays that way.
 
-Part of Axle by AryanX, a family of plugins for running WordPress sites safely.
+Part of [Axle](https://axlewp.com/) by AryanX, a family of free plugins for running WordPress sites safely.
 
 = Why WordPress 6.9 =
 

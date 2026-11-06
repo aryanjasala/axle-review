@@ -10,7 +10,7 @@
 .axr-link {
 	margin: 0 0 12px;
 	padding: 0 0 8px;
-	border-bottom: 1px solid #ddd;
+	border-bottom: 1px solid rgba( 0, 0, 0, 0.1 );
 }
 
 .axr-link p {
@@ -20,12 +20,12 @@
 .axr-link__status,
 .axr-link__meta,
 .axr-muted {
-	color: #50575e;
+	color: var(--axle-muted, #646970);
 }
 
 .axr-link--revoked .axr-link__head,
 .axr-link--expired .axr-link__head {
-	color: #50575e;
+	color: var(--axle-muted, #646970);
 }
 
 .axr-link__actions {

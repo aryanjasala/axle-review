@@ -218,7 +218,7 @@ final class SettingsSection implements Service {
 		echo '<p class="description" id="axr-slack-help">' . esc_html__( 'Optional. An incoming webhook URL. Slack gets a message for each new reviewer note and each time someone publishes past the gate. The URL is never shown in full again.', 'axle-review' ) . '</p>';
 		if ( '' !== $url && is_array( $status ) && empty( $status['ok'] ) ) {
 			/* translators: %s: HTTP status code or error. */
-			echo '<p class="axr-warning">' . esc_html( sprintf( __( 'The last message to Slack failed (%s).', 'axle-review' ), $status['error'] ? (string) $status['error'] : (string) $status['code'] ) ) . '</p>';
+			echo '<div class="notice notice-error inline"><p>' . esc_html( sprintf( __( 'The last message to Slack failed (%s).', 'axle-review' ), $status['error'] ? (string) $status['error'] : (string) $status['code'] ) ) . '</p></div>';
 		}
 	}
 }
