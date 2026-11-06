@@ -131,7 +131,16 @@ final class LinksTable extends \WP_List_Table {
 	 * Message when there are no links.
 	 */
 	public function no_items(): void {
-		esc_html_e( 'No review links yet. Create one from the "Share for review" panel in the editor, or with "Share for review" under a draft in the posts list.', 'axle-review' );
+		echo esc_html( $this->empty_message() );
+	}
+
+	/**
+	 * What to say when there are no links.
+	 *
+	 * @return string
+	 */
+	public function empty_message(): string {
+		return __( 'No review links yet. Create one from the "Share for review" panel in the editor, or with "Share for review" under a draft in the posts list.', 'axle-review' );
 	}
 
 	/**
@@ -162,7 +171,7 @@ final class LinksTable extends \WP_List_Table {
 		);
 		if ( 'revoked' !== $item['status'] ) {
 			$actions['revoke'] = sprintf(
-				'<a href="%1$s" class="axr-danger">%2$s</a>',
+				'<a href="%1$s" class="submitdelete">%2$s</a>',
 				esc_url(
 					wp_nonce_url(
 						add_query_arg(
@@ -263,7 +272,15 @@ final class LinksTable extends \WP_List_Table {
 	 */
 	protected function column_expires( $item ): string {
 		$time = (int) strtotime( (string) $item['expires_at'] . ' UTC' );
-		return esc_html( wp_date( (string) get_option( 'date_format' ) . ' ' . (string) get_option( 'time_format' ), $time ) );
+		/* translators: %s: time span, such as "2 days". */
+		$relative = $time > time() ? __( 'in %s', 'axle-review' ) : __( '%s ago', 'axle-review' );
+
+		return sprintf(
+			'<time datetime="%1$s" title="%2$s">%3$s</time>',
+			esc_attr( gmdate( 'c', $time ) ),
+			esc_attr( wp_date( (string) get_option( 'date_format' ) . ' ' . (string) get_option( 'time_format' ), $time ) ),
+			esc_html( sprintf( $relative, human_time_diff( $time ) ) )
+		);
 	}
 
 	/**
@@ -273,6 +290,13 @@ final class LinksTable extends \WP_List_Table {
 	 * @return string
 	 */
 	protected function column_status( $item ): string {
-		return sprintf( '<span class="axr-status axr-status--%1$s">%2$s</span>', esc_attr( $item['status'] ), esc_html( LinksPage::status_label( (string) $item['status'] ) ) );
+		$tones = array(
+			'active'  => 'good',
+			'used'    => 'neutral',
+			'expired' => 'neutral',
+			'revoked' => 'neutral',
+		);
+
+		return sprintf( '<span class="axle-badge axle-badge--%1$s">%2$s</span>', esc_attr( $tones[ $item['status'] ] ?? 'neutral' ), esc_html( LinksPage::status_label( (string) $item['status'] ) ) );
 	}
 }

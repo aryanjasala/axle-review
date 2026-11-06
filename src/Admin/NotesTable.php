@@ -119,12 +119,20 @@ final class NotesTable extends \WP_List_Table {
 	 * Message when there are no notes.
 	 */
 	public function no_items(): void {
+		echo esc_html( $this->empty_message() );
+	}
+
+	/**
+	 * What to say when there are no notes in this view.
+	 *
+	 * @return string
+	 */
+	public function empty_message(): string {
 		if ( 'unresolved' === ( $this->filters['view'] ?? '' ) ) {
-			esc_html_e( 'No open notes. Everything is resolved.', 'axle-review' );
-			return;
+			return __( 'No open notes. Everything is resolved.', 'axle-review' );
 		}
 
-		esc_html_e( 'No notes match.', 'axle-review' );
+		return __( 'No notes match.', 'axle-review' );
 	}
 
 	/**
@@ -208,7 +216,7 @@ final class NotesTable extends \WP_List_Table {
 		$type  = get_post_type_object( $post->post_type );
 
 		return sprintf(
-			'<a href="%1$s">%2$s</a><br><span class="axr-muted">%3$s, %4$s</span>',
+			'<a href="%1$s">%2$s</a><br><span class="axle-muted">%3$s, %4$s</span>',
 			esc_url( Inbox::editor_url( $item ) ),
 			esc_html( $title ),
 			esc_html( $type ? (string) $type->labels->singular_name : $post->post_type ),
@@ -232,7 +240,7 @@ final class NotesTable extends \WP_List_Table {
 		$thread = (int) $item->comment_parent ? (int) $item->comment_parent : (int) $item->comment_ID;
 		$path   = Anchor::find_note( $this->blocks[ $post_id ], $thread );
 		if ( null === $path ) {
-			return '<span class="axr-muted">' . esc_html__( 'Not on a block', 'axle-review' ) . '</span>';
+			return '<span class="axle-muted">' . esc_html__( 'Not on a block', 'axle-review' ) . '</span>';
 		}
 
 		$block = Anchor::at( $this->blocks[ $post_id ], $path );
@@ -277,8 +285,8 @@ final class NotesTable extends \WP_List_Table {
 	protected function column_status( $item ): string {
 		$resolved = '1' === (string) $item->comment_approved;
 		return sprintf(
-			'<span class="axr-status axr-status--%1$s">%2$s</span>',
-			$resolved ? 'resolved' : 'open',
+			'<span class="axle-badge axle-badge--%1$s">%2$s</span>',
+			$resolved ? 'good' : 'warning',
 			$resolved ? esc_html__( 'Resolved', 'axle-review' ) : esc_html__( 'Open', 'axle-review' )
 		);
 	}

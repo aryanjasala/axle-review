@@ -1,4 +1,5 @@
-/* Axle Review: Dashboard > Notes, Tools > Review Links and the settings section. */
+/* Layout that only this plugin needs. Components come from axle-ui.css. */
+
 .axr-filters {
 	display: flex;
 	flex-wrap: wrap;
@@ -15,15 +16,11 @@
 	margin: 0 0 4px;
 }
 
-.axr-muted {
-	color: #50575e;
-}
-
 .axr-reply summary {
 	display: inline-block;
 	min-height: 24px;
 	padding: 4px 0;
-	color: #2271b1;
+	color: var(--wp-admin-theme-color-darker-10, #135e96);
 	line-height: 1.4;
 	cursor: pointer;
 }
@@ -38,61 +35,20 @@
 	display: none;
 }
 
-.axr-status {
-	display: inline-block;
-	padding: 0 8px;
-	border-radius: 10px;
-	background: #f0f0f1;
-	color: #1d2327;
-}
-
-.axr-status--open,
-.axr-status--active {
-	background: #fcf9e8;
-	color: #614200;
-}
-
-.axr-status--resolved {
-	background: #edfaef;
-	color: #00450c;
-}
-
-.axr-status--revoked,
-.axr-status--expired,
-.axr-status--used {
-	background: #f0f0f1;
-	color: #50575e;
-}
-
-.axr-danger,
-.axr-links .button.axr-danger {
-	color: #b32d2e;
-}
-
-.axr-links .button.axr-danger {
-	border-color: #b32d2e;
-}
-
 .axr-card {
 	max-width: 760px;
-	margin: 16px 0;
-	padding: 4px 20px 8px;
-	background: #fff;
-	border: 1px solid #c3c4c7;
 }
 
 .axr-pause {
-	margin: 12px 0;
+	max-width: 760px;
 }
 
-.axr-inline {
-	margin-right: 12px;
+.axr-links .axle-empty,
+.axr-inbox .axle-empty {
+	margin: 8px 0 16px;
 }
 
-.axr-warning {
-	color: #b32d2e;
-}
-
-.axr-count {
-	font-weight: 600;
+/* The shared danger button text (#d63638) is 4.4:1 on core's button background before WordPress 7.0. */
+.axle-ui .button.axle-button--danger {
+	color: var(--axle-error-text);
 }

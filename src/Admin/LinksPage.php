@@ -151,7 +151,8 @@ final class LinksPage implements Service {
 			exit;
 		}
 
-		wp_enqueue_style( 'axle-review-admin', plugins_url( 'assets/admin.css', PLUGIN_FILE ), array(), VERSION );
+		AxleUi::enqueue();
+		wp_enqueue_style( 'axle-review-admin', plugins_url( 'assets/admin.css', PLUGIN_FILE ), array( AxleUi::HANDLE ), VERSION );
 		wp_enqueue_script( 'axle-review-links', plugins_url( 'assets/links.js', PLUGIN_FILE ), array(), VERSION, true );
 	}
 
@@ -253,20 +254,25 @@ final class LinksPage implements Service {
 		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Display only.
 		$activity = isset( $_GET['activity'] ) ? absint( $_GET['activity'] ) : 0;
 
-		echo '<div class="wrap axr-links">';
+		echo '<div class="wrap axle-ui axr-links">';
 		echo '<h1 class="wp-heading-inline">' . esc_html__( 'Review Links', 'axle-review' ) . '</h1>';
+		if ( Settings::paused() ) {
+			echo '<span class="axle-status"><span class="axle-badge axle-badge--warning">' . esc_html__( 'Paused', 'axle-review' ) . '</span></span>';
+		}
 		echo '<hr class="wp-header-end">';
 
 		$this->notices();
 
+		echo '<p class="axle-intro">' . esc_html__( 'Private links that let someone without an account read a draft and leave notes on it. See who opened each link, turn one off, or pause them all.', 'axle-review' ) . '</p>';
+
 		if ( $activity ) {
 			$this->render_activity( $activity );
+			AxleUi::footer();
 			echo '</div>';
 			return;
 		}
 
 		$filters = $this->filters();
-		$this->pause_form();
 
 		if ( $filters['post_id'] && Settings::can_share( $filters['post_id'] ) ) {
 			$this->create_form( $filters['post_id'] );
@@ -281,8 +287,16 @@ final class LinksPage implements Service {
 			printf( '<input type="hidden" name="post_id" value="%d">', (int) $filters['post_id'] );
 		}
 		$this->filter_bar( $filters );
-		$table->display();
+		if ( $table->has_items() ) {
+			$table->display();
+		} else {
+			echo '<div class="axle-empty"><p>' . esc_html( $table->empty_message() ) . '</p></div>';
+		}
 		echo '</form>';
+
+		$this->pause_form();
+
+		AxleUi::footer();
 		echo '</div>';
 	}
 
@@ -338,19 +352,26 @@ final class LinksPage implements Service {
 		}
 
 		$paused = Settings::paused();
-		echo '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '" class="axr-pause">';
+		echo '<section class="axle-card' . ( $paused ? '' : ' axle-card--danger' ) . ' axr-pause">';
+		echo '<h2 class="axle-card__title">' . esc_html( $paused ? __( 'Links are paused', 'axle-review' ) : __( 'Pause all links', 'axle-review' ) ) . '</h2>';
+		echo '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '">';
 		echo '<input type="hidden" name="action" value="axle_review_pause">';
 		echo '<input type="hidden" name="pause" value="' . ( $paused ? '0' : '1' ) . '">';
 		wp_nonce_field( 'axle_review_pause' );
-		echo '<p>';
 		if ( $paused ) {
-			echo esc_html__( 'Every review link is paused. Nobody can open one.', 'axle-review' ) . ' ';
+			echo '<p>' . esc_html__( 'Every review link is paused. Nobody can open one. Resuming brings back the ones that were still valid.', 'axle-review' ) . '</p>';
 			submit_button( __( 'Resume all links', 'axle-review' ), 'secondary', 'submit', false );
 		} else {
-			echo esc_html__( 'If a link leaked, pause every link on the site at once. Resuming brings back the ones that were still valid.', 'axle-review' ) . ' ';
-			submit_button( __( 'Pause all links', 'axle-review' ), 'secondary axr-danger', 'submit', false );
+			echo '<p>' . esc_html__( 'If a link leaked, pause every link on the site at once. Nobody can open a review link until you resume them. Resuming brings back the ones that were still valid.', 'axle-review' ) . '</p>';
+			submit_button(
+				__( 'Pause all links', 'axle-review' ),
+				'secondary axle-button--danger',
+				'submit',
+				false,
+				array( 'onclick' => 'return window.confirm( ' . wp_json_encode( __( 'Pause every review link on this site? Nobody can open one until you resume them. You can undo this with Resume all links.', 'axle-review' ) ) . ' );' )
+			);
 		}
-		echo '</p></form>';
+		echo '</form></section>';
 	}
 
 	/**
@@ -365,9 +386,9 @@ final class LinksPage implements Service {
 		}
 
 		$default = $this->settings->default_expiry();
-		echo '<div class="axr-card" id="axr-new">';
+		echo '<section class="axle-card axr-card" id="axr-new">';
 		/* translators: %s: post title. */
-		echo '<h2>' . esc_html( sprintf( __( 'Share "%s" for review', 'axle-review' ), get_the_title( $post ) ) ) . '</h2>';
+		echo '<h2 class="axle-card__title">' . esc_html( sprintf( __( 'Share "%s" for review', 'axle-review' ), get_the_title( $post ) ) ) . '</h2>';
 		echo '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '">';
 		echo '<input type="hidden" name="action" value="axle_review_create_link">';
 		printf( '<input type="hidden" name="post_id" value="%d">', (int) $post_id );
@@ -412,7 +433,7 @@ final class LinksPage implements Service {
 
 		echo '</tbody></table>';
 		submit_button( __( 'Create link', 'axle-review' ) );
-		echo '</form></div>';
+		echo '</form></section>';
 	}
 
 	/**
@@ -467,25 +488,33 @@ final class LinksPage implements Service {
 		}
 
 		$labels = self::event_labels();
-		/* translators: 1: link label, 2: post title. */
-		echo '<h2>' . esc_html( sprintf( __( 'Activity of "%1$s" on "%2$s"', 'axle-review' ), '' === $link['label'] ? '#' . $link_id : $link['label'], get_the_title( (int) $link['post_id'] ) ) ) . '</h2>';
 		printf( '<p><a href="%1$s">%2$s</a></p>', esc_url( self::url() ), esc_html__( 'Back to all links', 'axle-review' ) );
 
+		echo '<section class="axle-card">';
+		/* translators: 1: link label, 2: post title. */
+		echo '<h2 class="axle-card__title">' . esc_html( sprintf( __( 'Activity of "%1$s" on "%2$s"', 'axle-review' ), '' === $link['label'] ? '#' . $link_id : $link['label'], get_the_title( (int) $link['post_id'] ) ) ) . '</h2>';
+
 		$events = $this->events->for_link( $link_id, 200 );
-		echo '<table class="widefat striped axr-activity"><thead><tr><th scope="col">' . esc_html__( 'When', 'axle-review' ) . '</th><th scope="col">' . esc_html__( 'What', 'axle-review' ) . '</th><th scope="col">' . esc_html__( 'Browser', 'axle-review' ) . '</th><th scope="col">' . esc_html__( 'IP address (anonymised)', 'axle-review' ) . '</th></tr></thead><tbody>';
 		if ( ! $events ) {
-			echo '<tr><td colspan="4">' . esc_html__( 'Nobody has opened this link yet.', 'axle-review' ) . '</td></tr>';
+			echo '<div class="axle-empty"><p>' . esc_html__( 'Nobody has opened this link yet. Opens, codes and notes will be listed here.', 'axle-review' ) . '</p></div></section>';
+			return;
 		}
+
+		echo '<table class="widefat striped axr-activity"><thead><tr><th scope="col">' . esc_html__( 'When', 'axle-review' ) . '</th><th scope="col">' . esc_html__( 'What', 'axle-review' ) . '</th><th scope="col">' . esc_html__( 'Browser', 'axle-review' ) . '</th><th scope="col">' . esc_html__( 'IP address (anonymised)', 'axle-review' ) . '</th></tr></thead><tbody>';
 		foreach ( $events as $event ) {
+			$time = (int) strtotime( $event['created_at'] );
 			printf(
-				'<tr><td>%1$s</td><td>%2$s</td><td>%3$s</td><td>%4$s</td></tr>',
-				esc_html( wp_date( (string) get_option( 'date_format' ) . ' ' . (string) get_option( 'time_format' ), (int) strtotime( $event['created_at'] ) ) ),
+				'<tr><td><time datetime="%1$s" title="%2$s">%3$s</time></td><td>%4$s</td><td>%5$s</td><td>%6$s</td></tr>',
+				esc_attr( gmdate( 'c', $time ) ),
+				esc_attr( wp_date( (string) get_option( 'date_format' ) . ' ' . (string) get_option( 'time_format' ), $time ) ),
+				/* translators: %s: time span, such as "2 hours". */
+				esc_html( sprintf( __( '%s ago', 'axle-review' ), human_time_diff( $time ) ) ),
 				esc_html( $labels[ $event['type'] ] ?? $event['type'] ),
 				esc_html( $event['browser'] ),
 				esc_html( $event['ip'] )
 			);
 		}
-		echo '</tbody></table>';
+		echo '</tbody></table></section>';
 	}
 
 	/**
