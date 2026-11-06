@@ -199,7 +199,8 @@ final class Inbox implements Service {
 
 		update_user_meta( get_current_user_id(), self::SEEN_KEY, time() );
 
-		wp_enqueue_style( 'axle-review-admin', plugins_url( 'assets/admin.css', PLUGIN_FILE ), array(), VERSION );
+		AxleUi::enqueue();
+		wp_enqueue_style( 'axle-review-admin', plugins_url( 'assets/admin.css', PLUGIN_FILE ), array( AxleUi::HANDLE ), VERSION );
 		wp_enqueue_script( 'axle-review-inbox', plugins_url( 'assets/inbox.js', PLUGIN_FILE ), array( 'wp-hooks' ), VERSION, true );
 	}
 
@@ -327,18 +328,23 @@ final class Inbox implements Service {
 		$table   = new NotesTable( $this->notes, $filters );
 		$table->prepare_items();
 
-		echo '<div class="wrap axr-inbox">';
+		echo '<div class="wrap axle-ui axr-inbox">';
 		echo '<h1 class="wp-heading-inline">' . esc_html__( 'Notes', 'axle-review' ) . '</h1>';
 		echo '<hr class="wp-header-end">';
 
 		$this->notice();
 		$this->print_views( $filters );
+		echo '<p class="axle-intro">' . esc_html__( 'Every note on the site in one place, from your team and from reviewers. Reply, resolve or reopen a note without opening its post.', 'axle-review' ) . '</p>';
 
 		echo '<form method="get" class="axr-inbox-form">';
 		echo '<input type="hidden" name="page" value="' . esc_attr( self::SLUG ) . '">';
 		echo '<input type="hidden" name="view" value="' . esc_attr( (string) $filters['view'] ) . '">';
 		$this->filter_bar( $filters );
-		$table->display();
+		if ( $table->has_items() ) {
+			$table->display();
+		} else {
+			echo '<div class="axle-empty"><p>' . esc_html( $table->empty_message() ) . '</p></div>';
+		}
 		echo '</form>';
 
 		foreach ( self::$reply_forms as $thread ) {
@@ -350,6 +356,7 @@ final class Inbox implements Service {
 			);
 		}
 
+		AxleUi::footer();
 		echo '</div>';
 	}
 
@@ -385,31 +392,28 @@ final class Inbox implements Service {
 	 * @param array $filters Filters.
 	 */
 	private function print_views( array $filters ): void {
-		$links = array();
+		$tabs  = array();
 		$views = self::views();
-		$last  = array_key_last( $views );
 		foreach ( $views as $key => $label ) {
-			$url     = self::url( array_filter( array( 'view' => $key ) ) );
-			$current = $key === $filters['view'];
-			$count   = '';
+			$url   = self::url( array_filter( array( 'view' => $key ) ) );
+			$count = '';
 			if ( 'unresolved' === $key ) {
 				$args = $filters;
 				unset( $args['mentions'], $args['on_posts_by'], $args['guests'], $args['since'] );
 				$query = Notes::query_args( array_merge( $args, array( 'status' => 'unresolved' ) ) );
 				$count = ' <span class="count">(' . number_format_i18n( $this->notes->cached_count( array_merge( $query, array( 'count' => true ) ) ) ) . ')</span>';
 			}
-			$links[] = sprintf(
-				'<li class="%1$s"><a href="%2$s"%3$s>%4$s%5$s</a>%6$s</li>',
-				esc_attr( $key ),
+			$tabs[] = sprintf(
+				'<a href="%1$s" class="nav-tab%2$s"%3$s>%4$s%5$s</a>',
 				esc_url( $url ),
-				$current ? ' class="current" aria-current="page"' : '',
+				$key === $filters['view'] ? ' nav-tab-active' : '',
+				$key === $filters['view'] ? ' aria-current="page"' : '',
 				esc_html( $label ),
-				wp_kses( $count, array( 'span' => array( 'class' => true ) ) ),
-				$key === $last ? '' : ' |'
+				wp_kses( $count, array( 'span' => array( 'class' => true ) ) )
 			);
 		}
 
-		echo '<ul class="subsubsub">' . implode( '', $links ) . '</ul>'; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Escaped above.
+		echo '<nav class="nav-tab-wrapper" aria-label="' . esc_attr__( 'Note views', 'axle-review' ) . '">' . implode( '', $tabs ) . '</nav>'; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Escaped above.
 	}
 
 	/**

@@ -90,7 +90,8 @@ final class PostColumns implements Service {
 
 		$count = $this->notes->unresolved_count( (int) $post_id );
 		if ( ! $count ) {
-			echo '<span aria-hidden="true">&#8212;</span><span class="screen-reader-text">' . esc_html__( 'No open notes', 'axle-review' ) . '</span>';
+			/* translators: %d: number of open notes. */
+			echo esc_html( sprintf( _n( '%d open', '%d open', 0, 'axle-review' ), 0 ) );
 			return;
 		}
 

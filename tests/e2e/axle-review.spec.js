@@ -328,7 +328,7 @@ test.describe( 'Axle Review', () => {
 		const seeded = await seedReview();
 
 		await page.goto( '/wp-admin/index.php?page=axle-review-notes' );
-		await expect( page.locator( '.axr-inbox .subsubsub .current' ) ).toContainText( 'Unresolved' );
+		await expect( page.locator( '.axr-inbox .nav-tab-wrapper .nav-tab-active' ) ).toContainText( 'Unresolved' );
 		const row = page.locator( 'tr', { hasText: 'Guest: Leela (Legal)' } );
 		await expect( row ).toContainText( 'Spring menu announcement' );
 		await expect( row ).toContainText( 'Paragraph' );
@@ -388,7 +388,7 @@ test.describe( 'Axle Review', () => {
 		if ( ! hasMentions() ) {
 			const { context, page } = await logInAs( browser, 'maria', 'demo-password-123' );
 			await page.goto( '/wp-admin/index.php?page=axle-review-notes' );
-			await expect( page.locator( '.axr-inbox .subsubsub' ) ).not.toContainText( 'Mentions me' );
+			await expect( page.locator( '.axr-inbox .nav-tab-wrapper' ) ).not.toContainText( 'Mentions me' );
 			await context.close();
 			return;
 		}
@@ -403,7 +403,7 @@ test.describe( 'Axle Review', () => {
 
 		const { context, page } = await logInAs( browser, 'maria', 'demo-password-123' );
 		await page.goto( '/wp-admin/index.php?page=axle-review-notes' );
-		await page.locator( '.axr-inbox .subsubsub' ).getByRole( 'link', { name: 'Mentions me' } ).click();
+		await page.locator( '.axr-inbox .nav-tab-wrapper' ).getByRole( 'link', { name: 'Mentions me' } ).click();
 		await expect( page.locator( 'tbody' ) ).toContainText( 'Can you check the prices?' );
 		await context.close();
 	} );
@@ -476,6 +476,10 @@ test.describe( 'Axle Review', () => {
 
 		// Pause every link from Tools > Review Links.
 		await page.goto( '/wp-admin/tools.php?page=axle-review-links' );
+		page.once( 'dialog', ( dialog ) => {
+			expect( dialog.message() ).toContain( 'You can undo this' );
+			dialog.accept();
+		} );
 		await page.getByRole( 'button', { name: 'Pause all links' } ).click();
 		await expect( page.locator( '.notice-success' ) ).toContainText( 'Every review link is paused.' );
 		expect( wp( 'option', 'get', 'axle_review_paused', '--format=json' ) ).toContain( '"by":1' );
