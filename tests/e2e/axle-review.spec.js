@@ -465,6 +465,20 @@ test.describe( 'Axle Review', () => {
 		await openEditor( page, postId );
 		await openSharePanel( page );
 		const item = page.locator( '.axr-link', { hasText: 'Agency' } );
+
+		// Revoking asks first; dismissing keeps the link.
+		let asked = '';
+		page.once( 'dialog', ( dialog ) => {
+			asked = dialog.message();
+			dialog.dismiss();
+		} );
+		await item.getByRole( 'button', { name: 'Revoke' } ).click();
+		await expect.poll( () => asked ).toContain( 'Revoke "Agency"?' );
+		expect( asked ).toContain( 'cannot be undone' );
+		await expect( item.getByRole( 'button', { name: 'Revoke' } ) ).toBeVisible();
+		expect( link( first.id ).status ).toBe( 'active' );
+
+		page.once( 'dialog', ( dialog ) => dialog.accept() );
 		await item.getByRole( 'button', { name: 'Revoke' } ).click();
 		await expect( item ).toContainText( 'Revoked' );
 		expect( link( first.id ).status ).toBe( 'revoked' );
@@ -493,10 +507,29 @@ test.describe( 'Axle Review', () => {
 		// Bulk revoke on the Tools screen.
 		const third = createLink( postId, [ '--label=Press' ] );
 		await page.goto( '/wp-admin/tools.php?page=axle-review-links&status=active' );
+
+		// The row action asks first too.
+		const pressRow = page.locator( '#the-list tr', { hasText: 'Press' } );
+		asked = '';
+		page.once( 'dialog', ( dialog ) => {
+			asked = dialog.message();
+			dialog.dismiss();
+		} );
+		await pressRow.hover();
+		await pressRow.getByRole( 'link', { name: 'Revoke' } ).click();
+		await expect.poll( () => asked ).toContain( 'Revoke "Press"?' );
+		expect( link( third.id ).status ).toBe( 'active' );
+
 		await page.locator( '#cb-select-all-1' ).check();
 		await page.locator( '#bulk-action-selector-top' ).selectOption( 'revoke' );
+		asked = '';
+		page.once( 'dialog', ( dialog ) => {
+			asked = dialog.message();
+			dialog.accept();
+		} );
 		await page.locator( '#doaction' ).click();
 		await expect( page.locator( '.notice-success' ) ).toContainText( 'revoked' );
+		expect( asked ).toContain( 'Revoke the selected links?' );
 		expect( link( third.id ).status ).toBe( 'revoked' );
 		expect( link( second.id ).status ).toBe( 'revoked' );
 

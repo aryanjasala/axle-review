@@ -309,9 +309,16 @@
 			body = el( Spinner );
 		} else {
 			const revoke = ( link ) => {
+				const name = link.label || sprintf( /* translators: %d: link ID. */ __( 'Link %d', 'axle-review' ), link.id );
+				if ( ! window.confirm( sprintf( /* translators: %s: link label. */ __( 'Revoke "%s"? Anyone who has it can no longer open the draft. This cannot be undone.', 'axle-review' ), name ) ) ) {
+					return;
+				}
 				apiFetch( { path: '/axle-review/v1/links/' + link.id, method: 'DELETE' } ).then( load );
 			};
 			const revokeAll = () => {
+				if ( ! window.confirm( __( 'Revoke every review link of this post? Nobody can open the draft through them any more. This cannot be undone.', 'axle-review' ) ) ) {
+					return;
+				}
 				apiFetch( { path: '/axle-review/v1/links/revoke-all', method: 'POST', data: { post: postId } } ).then( load );
 			};
 			const live = data.links.filter( ( link ) => 'revoked' !== link.status && 'expired' !== link.status );

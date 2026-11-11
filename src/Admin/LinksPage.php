@@ -281,7 +281,8 @@ final class LinksPage implements Service {
 		$table = new LinksTable( $this->links, $this->events, $filters );
 		$table->prepare_items();
 
-		echo '<form method="get">';
+		$bulk_confirm = __( 'Revoke the selected links? Nobody can open the draft through them any more. This cannot be undone.', 'axle-review' );
+		echo '<form method="get" onsubmit="var a = this.elements.action, b = this.elements.action2, v = a && \'-1\' !== a.value ? a.value : ( b ? b.value : \'\' ); return \'revoke\' !== v || window.confirm( \'' . esc_attr( esc_js( $bulk_confirm ) ) . '\' );">';
 		echo '<input type="hidden" name="page" value="' . esc_attr( self::SLUG ) . '">';
 		if ( $filters['post_id'] ) {
 			printf( '<input type="hidden" name="post_id" value="%d">', (int) $filters['post_id'] );
