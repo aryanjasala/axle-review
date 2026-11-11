@@ -170,8 +170,10 @@ final class LinksTable extends \WP_List_Table {
 			'activity' => sprintf( '<a href="%1$s">%2$s</a>', esc_url( LinksPage::url( array( 'activity' => (int) $item['id'] ) ) ), esc_html__( 'Activity', 'axle-review' ) ),
 		);
 		if ( 'revoked' !== $item['status'] ) {
+			/* translators: %s: link label. */
+			$confirm           = sprintf( __( 'Revoke "%s"? Anyone who has it can no longer open the draft. This cannot be undone.', 'axle-review' ), $label );
 			$actions['revoke'] = sprintf(
-				'<a href="%1$s" class="submitdelete">%2$s</a>',
+				'<a href="%1$s" class="submitdelete" onclick="return window.confirm( \'%3$s\' );">%2$s</a>',
 				esc_url(
 					wp_nonce_url(
 						add_query_arg(
@@ -184,7 +186,8 @@ final class LinksTable extends \WP_List_Table {
 						'axle_review_revoke_' . (int) $item['id'] 
 					) 
 				),
-				esc_html__( 'Revoke', 'axle-review' )
+				esc_html__( 'Revoke', 'axle-review' ),
+				esc_attr( esc_js( $confirm ) )
 			);
 		}
 
