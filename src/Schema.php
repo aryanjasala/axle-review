@@ -18,7 +18,7 @@ defined( 'ABSPATH' ) || exit;
  */
 final class Schema {
 
-	public const DB_VERSION        = '1';
+	public const DB_VERSION        = '2';
 	public const DB_VERSION_OPTION = 'axle_review_db_version';
 	public const PRUNE_HOOK        = 'axle_review_prune';
 	public const DIGEST_HOOKS      = array(
@@ -194,9 +194,22 @@ final class Schema {
 				revoked_at datetime NULL,
 				revoked_by bigint(20) unsigned NOT NULL default 0,
 				last_opened_at datetime NULL,
+				reviewer_name varchar(100) NULL,
+				decision varchar(20) NOT NULL default '',
+				decision_comment text NULL,
+				decided_at datetime NULL,
+				decision_snapshot longtext NULL,
+				decision_note_id bigint(20) unsigned NOT NULL default 0,
+				outdated_at datetime NULL,
+				reask_at datetime NULL,
+				seen_snapshot longtext NULL,
+				seen_at datetime NULL,
+				visit_snapshot longtext NULL,
+				visit_at datetime NULL,
 				PRIMARY KEY  (id),
 				UNIQUE KEY token_hash (token_hash),
 				KEY post_id (post_id),
+				KEY post_decision (post_id,decision),
 				KEY created_by (created_by),
 				KEY email (email)
 			) {$charset};"

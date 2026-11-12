@@ -125,4 +125,15 @@ final class SettingsTest extends ReviewTestCase {
 		$this->assertSame( 'https://hooks.slack.com/••••••••wxyz', Settings::mask( 'https://hooks.slack.com/services/T1/B2/abcdwxyz' ) );
 		$this->assertSame( '', Settings::mask( '' ) );
 	}
+
+	public function test_the_approval_settings_are_clamped_and_default_to_off(): void {
+		$defaults = Settings::sanitize( array() );
+		$this->assertSame( 0, $defaults['gate_min_approvals'] );
+		$this->assertTrue( $defaults['gate_fresh_only'] );
+
+		$clean = Settings::sanitize( array( 'gate_min_approvals' => '99', 'gate_fresh_only' => '' ) );
+		$this->assertSame( 20, $clean['gate_min_approvals'] );
+		$this->assertFalse( $clean['gate_fresh_only'] );
+		$this->assertSame( 0, Settings::sanitize( array( 'gate_min_approvals' => -4 ) )['gate_min_approvals'] );
+	}
 }

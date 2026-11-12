@@ -15,7 +15,7 @@ defined( 'ABSPATH' ) || exit;
  */
 final class Events {
 
-	public const TYPES = array( 'open', 'code_sent', 'code_ok', 'code_fail', 'password_fail', 'note', 'reply_seen', 'denied' );
+	public const TYPES = array( 'open', 'code_sent', 'code_ok', 'code_fail', 'password_fail', 'note', 'reply_seen', 'denied', 'decision' );
 
 	/**
 	 * Adds an event.
@@ -158,6 +158,26 @@ final class Events {
 
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Rate limit: always the live count.
 		return (int) $wpdb->get_var( $wpdb->prepare( 'SELECT COUNT(*) FROM %i WHERE link_id = %d AND type = %s AND created_at >= %s', Schema::events_table(), $link_id, $type, gmdate( 'Y-m-d H:i:s', $since ) ) );
+	}
+
+	/**
+	 * Whether any link ever had an event of these types.
+	 *
+	 * @param string[] $types Event types.
+	 * @return bool
+	 */
+	public function any_of( array $types ): bool {
+		global $wpdb;
+
+		$types = array_values( array_intersect( $types, self::TYPES ) );
+		if ( ! $types ) {
+			return false;
+		}
+
+		$placeholders = implode( ',', array_fill( 0, count( $types ), '%s' ) );
+		// phpcs:disable WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQLPlaceholders.UnfinishedPrepare, WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber -- The plugin's own table; $placeholders only holds %s.
+		return (bool) $wpdb->get_var( $wpdb->prepare( "SELECT 1 FROM %i WHERE type IN ({$placeholders}) LIMIT 1", array_merge( array( Schema::events_table() ), $types ) ) );
+		// phpcs:enable
 	}
 
 	/**

@@ -37,6 +37,15 @@ abstract class ReviewTestCase extends TestCase {
 	 */
 	protected $comment_meta = array();
 
+	/**
+	 * Approvals with real helpers and the fake database.
+	 *
+	 * @return \AryanX\Axle\Review\Approvals
+	 */
+	protected function approvals(): \AryanX\Axle\Review\Approvals {
+		return new \AryanX\Axle\Review\Approvals( new \AryanX\Axle\Review\Links(), new \AryanX\Axle\Review\Notes(), new \AryanX\Axle\Review\Events() );
+	}
+
 	protected function setUp(): void {
 		parent::setUp();
 

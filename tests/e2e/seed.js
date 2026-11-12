@@ -34,7 +34,7 @@ function removeFixture() {
 function clearReview() {
 	sql( 'TRUNCATE TABLE wp_axle_review_links' );
 	sql( 'TRUNCATE TABLE wp_axle_review_events' );
-	for ( const name of [ 'axle_review_settings', 'axle_review_paused', 'axle_review_slack', 'axle_review_slack_status', 'axle_review_cache_warning', 'axr_fixture_mail' ] ) {
+	for ( const name of [ 'axle_review_settings', 'axle_review_paused', 'axle_review_slack', 'axle_review_slack_status', 'axle_review_cache_warning', 'axr_fixture_mail', 'axr_fixture_no_revisions' ] ) {
 		try {
 			wp( 'option', 'delete', name );
 		} catch ( error ) {
@@ -54,7 +54,10 @@ function clearReview() {
  * @return {number} Post ID.
  */
 function createDraft( title = 'Spring menu announcement', content = blocks(), type = 'post' ) {
-	return Number( wp( 'post', 'create', `--post_type=${ type }`, `--post_title=${ title }`, `--post_content=${ content }`, '--post_status=draft', '--post_author=1', '--porcelain' ) );
+	const id = Number( wp( 'post', 'create', `--post_type=${ type }`, `--post_title=${ title }`, `--post_content=${ content }`, '--post_status=draft', '--post_author=1', '--porcelain' ) );
+	// A draft saved in the editor has a revision. One save here gives this draft the same.
+	wpEval( `wp_update_post( array( 'ID' => ${ id } ) );` );
+	return id;
 }
 
 /**
@@ -197,6 +200,75 @@ async function seedReview() {
 	return { menu, shipping, legal, founder, agency, notes, reply: Number( reply ), own: Number( own ) };
 }
 
+/**
+ * A reviewer's decision, made the way the guest route makes it.
+ *
+ * @param {number} linkId   Link ID.
+ * @param {string} decision approved or changes_requested.
+ * @param {string} name     Reviewer name.
+ * @param {string} comment  Comment.
+ * @return {string} ok, or the error code.
+ */
+function decide( linkId, decision, name, comment = '' ) {
+	return wpEval( `
+		$plugin = AryanX\\Axle\\Review\\Plugin::instance();
+		$result = $plugin->approvals()->decide( $plugin->links()->get( ${ linkId } ), '${ decision }', ${ JSON.stringify( name ) }, ${ JSON.stringify( comment ) } );
+		echo is_wp_error( $result ) ? $result->get_error_code() : 'ok';
+	` );
+}
+
+/**
+ * Edits the text of a post, the way an editor's save does.
+ *
+ * @param {number} postId Post ID.
+ * @param {string} from   Text to find.
+ * @param {string} to     Replacement.
+ */
+function editPost( postId, from, to ) {
+	wpEval( `wp_update_post( array( 'ID' => ${ postId }, 'post_content' => str_replace( ${ JSON.stringify( from ) }, ${ JSON.stringify( to ) }, get_post( ${ postId } )->post_content ) ) );` );
+}
+
+/**
+ * A draft with three reviewers: Legal approved, Marketing asked for changes, Press has not answered.
+ * Then the draft is edited, so Legal's approval is out of date.
+ *
+ * @return {Object} Post and link IDs.
+ */
+function seedDecisions() {
+	installFixture();
+	clearReview();
+	removePosts();
+	createPeople();
+	const post = createDraft( 'Spring menu announcement' );
+	const legal = createLink( post, [ '--label=Legal review' ] );
+	const marketing = createLink( post, [ '--label=Marketing' ] );
+	const press = createLink( post, [ '--label=Press' ] );
+	decide( legal.id, 'approved', 'Leela Rao', 'Terms are fine.' );
+	decide( marketing.id, 'changes_requested', 'Sam Wu', 'The tasting time is missing.' );
+	editPost( post, 'Saturday mornings', 'Saturday mornings from 9 to 11 am' );
+	return { post, legal, marketing, press };
+}
+
+/** A draft and a link a reviewer has already opened once, then the draft is edited. */
+function seedReturning( noRevisions = false ) {
+	installFixture();
+	clearReview();
+	removePosts();
+	if ( noRevisions ) {
+		wp( 'option', 'update', 'axr_fixture_no_revisions', '1' );
+	}
+	const post = createDraft( 'Spring menu announcement' );
+	const link = createLink( post, [ '--label=Screen' ] );
+	// The reviewer's first visit records what they saw.
+	wpEval( `
+		$plugin = AryanX\\Axle\\Review\\Plugin::instance();
+		( new AryanX\\Axle\\Review\\Visits( $plugin->links() ) )->record( $plugin->links()->get( ${ link.id } ), get_post( ${ post } ), true );
+	` );
+	editPost( post, 'three new single origin coffees', 'four new single origin coffees' );
+	editPost( post, 'Visit the shop on Saturday mornings', 'Visit the shop on Saturday and Sunday mornings' );
+	return { post, link };
+}
+
 /** Undoes seedReview(). */
 function unseedReview() {
 	clearReview();
@@ -269,5 +341,9 @@ module.exports = {
 	seedLinkWithNote,
 	seedLockedLink,
 	seedRevokedLink,
+	seedDecisions,
+	seedReturning,
+	decide,
+	editPost,
 	seedEmpty,
 };

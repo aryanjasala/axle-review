@@ -7,6 +7,7 @@
 
 namespace AryanX\Axle\Review\Cli;
 
+use AryanX\Axle\Review\Approvals;
 use AryanX\Axle\Review\Events;
 use AryanX\Axle\Review\Links;
 use AryanX\Axle\Review\Rest\EditorRoutes;
@@ -23,6 +24,7 @@ defined( 'ABSPATH' ) || exit;
  *     wp axle-review link create 42 --label="Legal" --expires=3d --views=1
  *     wp axle-review link list --post=42 --status=active
  *     wp axle-review link revoke 7
+ *     wp axle-review link ask-again 7
  *     wp axle-review link pause
  */
 final class LinkCommand {
@@ -49,16 +51,25 @@ final class LinkCommand {
 	private Events $events;
 
 	/**
+	 * Approvals.
+	 *
+	 * @var Approvals
+	 */
+	private Approvals $approvals;
+
+	/**
 	 * Sets up the command.
 	 *
-	 * @param Settings $settings Settings.
-	 * @param Links    $links    Links.
-	 * @param Events   $events   Events.
+	 * @param Settings  $settings  Settings.
+	 * @param Links     $links     Links.
+	 * @param Events    $events    Events.
+	 * @param Approvals $approvals Approvals.
 	 */
-	public function __construct( Settings $settings, Links $links, Events $events ) {
-		$this->settings = $settings;
-		$this->links    = $links;
-		$this->events   = $events;
+	public function __construct( Settings $settings, Links $links, Events $events, Approvals $approvals ) {
+		$this->settings  = $settings;
+		$this->links     = $links;
+		$this->events    = $events;
+		$this->approvals = $approvals;
 	}
 
 	/**
@@ -107,8 +118,8 @@ final class LinkCommand {
 	 * [--password[=<password>]]
 	 * : Ask for a password. Without a value it is read from STDIN.
 	 *
-	 * [--no-notes]
-	 * : The reviewer can read, not leave notes.
+	 * [--notes]
+	 * : The reviewer can leave notes. On by default. Use --no-notes for a read-only link.
 	 *
 	 * [--send-to=<email>]
 	 * : Email the link to this address.
@@ -222,7 +233,7 @@ final class LinkCommand {
 			return;
 		}
 
-		$fields = isset( $assoc_args['fields'] ) ? explode( ',', (string) $assoc_args['fields'] ) : array( 'id', 'post_id', 'label', 'status', 'views', 'max_views', 'notes', 'email', 'expires_at' );
+		$fields = isset( $assoc_args['fields'] ) ? explode( ',', (string) $assoc_args['fields'] ) : array( 'id', 'post_id', 'label', 'status', 'decision', 'reviewer', 'views', 'max_views', 'notes', 'email', 'expires_at' );
 		\WP_CLI\Utils\format_items( $format, $rows, $fields );
 	}
 
@@ -259,6 +270,40 @@ final class LinkCommand {
 			}
 			\WP_CLI::success( sprintf( 'Revoked link %d.', (int) $id ) );
 		}
+	}
+
+	/**
+	 * Asks a reviewer to look again after the post changed. The link gets a
+	 * new URL (the old one stops working), printed once and emailed when the
+	 * link has an address. The reviewer then sees only what changed since
+	 * their decision.
+	 *
+	 * ## OPTIONS
+	 *
+	 * <id>
+	 * : Link ID. The reviewer must have decided already.
+	 *
+	 * [--porcelain]
+	 * : Print only the new URL.
+	 *
+	 * @subcommand ask-again
+	 *
+	 * @param array $args       Positional arguments.
+	 * @param array $assoc_args Options.
+	 */
+	public function ask_again( $args, $assoc_args ): void {
+		$result = $this->approvals->ask_again( (int) ( $args[0] ?? 0 ), get_current_user_id() );
+		if ( is_wp_error( $result ) ) {
+			\WP_CLI::error( $result->get_error_message() );
+		}
+
+		if ( ! empty( $assoc_args['porcelain'] ) ) {
+			\WP_CLI::line( $result['url'] );
+			return;
+		}
+
+		\WP_CLI::success( $result['emailed'] ? 'Asked again, and emailed the new link. The new URL is not shown again:' : 'Asked again. Copy the new URL now, it is not shown again:' );
+		\WP_CLI::line( $result['url'] );
 	}
 
 	/**

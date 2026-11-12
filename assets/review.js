@@ -6,7 +6,9 @@
  * that load later can still hook in:
  *  - axleReview.blockSelector ( selector ): which elements count as a block in note mode.
  *  - axleReview.popoverFields ( fields ): the popover fields, from name, email and note.
- * Action: axleReview.noteSubmitted ( note, element ) after a note was saved.
+ * Actions: axleReview.noteSubmitted ( note, element ) after a note was saved,
+ * axleReview.decisionSubmitted ( decision ) after the reviewer approved or asked for changes.
+ * Filter: axleReview.changesBar ( changes ) to change what the "changed since your visit" bar lists.
  */
 ( function ( config, hooks ) {
 	'use strict';
@@ -29,9 +31,9 @@
 
 	function storedName() {
 		try {
-			return window.sessionStorage.getItem( NAME_KEY ) || '';
+			return window.sessionStorage.getItem( NAME_KEY ) || config.reviewer || '';
 		} catch ( error ) {
-			return '';
+			return config.reviewer || '';
 		}
 	}
 
@@ -104,10 +106,18 @@
 	const mineButton = el( 'button', { type: 'button', class: 'axr-button', id: 'axr-my-notes', text: S.myNotes } );
 	const canNote = config.allowNotes && config.hasBlocks;
 
+	const canDecide = !! config.decide;
+	const approveButton = el( 'button', { type: 'button', class: 'axr-button', id: 'axr-approve', text: S.approve } );
+	const changesButton = el( 'button', { type: 'button', class: 'axr-button', id: 'axr-request-changes', text: S.changes } );
+	const decisionLine = el( 'p', { class: 'axr-toolbar__decision' } );
+
 	const toolbar = el( 'div', { class: 'axr-toolbar', id: 'axr-toolbar', role: 'region', 'aria-label': S.title }, [
 		el( 'span', { class: 'axr-toolbar__title', text: S.title } ),
 		canNote ? modeButton : null,
 		config.allowNotes ? mineButton : null,
+		canDecide ? approveButton : null,
+		canDecide ? changesButton : null,
+		decisionLine,
 		who,
 		status,
 	] );
@@ -151,6 +161,8 @@
 
 	modeButton.addEventListener( 'click', () => setNoteMode( ! noteMode ) );
 	mineButton.addEventListener( 'click', () => openPanel() );
+	approveButton.addEventListener( 'click', () => openDecision( 'approved', approveButton ) );
+	changesButton.addEventListener( 'click', () => openDecision( 'changes_requested', changesButton ) );
 
 	/* Picking a block */
 
@@ -388,12 +400,192 @@
 			} );
 	}
 
+	/* Approve or request changes */
+
+	function showDecision() {
+		const decision = config.decision || {};
+		let text = '';
+		if ( decision.decision ) {
+			text = ( 'approved' === decision.decision ? S.youApproved : S.youChanges ).replace( '%s', decision.reviewer || '' ).replace( /^, /, '' );
+			if ( decision.edited ) {
+				text += ' ' + S.editedSince;
+			}
+		}
+		decisionLine.textContent = text;
+		approveButton.setAttribute( 'aria-pressed', 'approved' === decision.decision ? 'true' : 'false' );
+		changesButton.setAttribute( 'aria-pressed', 'changes_requested' === decision.decision ? 'true' : 'false' );
+	}
+
+	function openDecision( kind, trigger ) {
+		closePopover();
+		lastFocus = trigger;
+		const approving = 'approved' === kind;
+		const known = storedName();
+		const error = el( 'p', { class: 'axr-popover__error', role: 'alert' } );
+		const name = el( 'input', { type: 'text', id: 'axr-decide-name', name: 'name', autocomplete: 'name', maxlength: '100', required: true } );
+		name.value = known;
+		const comment = el( 'textarea', { id: 'axr-decide-comment', name: 'comment', rows: '4', maxlength: String( config.maxLength ) } );
+		if ( ! approving ) {
+			comment.setAttribute( 'required', '' );
+		}
+		const send = el( 'button', { type: 'submit', class: 'axr-button axr-button--primary', text: approving ? S.sendApprove : S.sendChanges } );
+		const cancel = el( 'button', { type: 'button', class: 'axr-button', text: S.cancel } );
+		const heading = approving ? S.approveTitle : S.changesTitle;
+
+		const form = el( 'form', { class: 'axr-popover__form', novalidate: true }, [
+			known ? el( 'p', { class: 'axr-popover__who', text: S.reviewingAs.replace( '%s', known ) } ) : el( 'p', {}, [ el( 'label', { for: 'axr-decide-name', text: S.name } ), name ] ),
+			el( 'p', {}, [ el( 'label', { for: 'axr-decide-comment', text: approving ? S.comment : S.commentNeeded } ), comment ] ),
+			error,
+			el( 'p', { class: 'axr-popover__actions' }, [ send, cancel ] ),
+		] );
+
+		popover = el( 'div', { class: 'axr-popover axr-popover--fixed', role: 'dialog', 'aria-labelledby': 'axr-decide-title' }, [ el( 'h2', { id: 'axr-decide-title', class: 'axr-popover__title', text: heading } ), form ] );
+		document.body.appendChild( popover );
+
+		cancel.addEventListener( 'click', closePopover );
+		form.addEventListener( 'submit', ( event ) => {
+			event.preventDefault();
+			error.textContent = '';
+			const who = known || name.value.trim();
+			if ( ! who ) {
+				error.textContent = S.nameNeeded;
+				name.focus();
+				return;
+			}
+			if ( ! approving && ! comment.value.trim() ) {
+				error.textContent = S.commentNeeded;
+				comment.focus();
+				return;
+			}
+			send.disabled = true;
+			send.setAttribute( 'aria-busy', 'true' );
+			api( 'POST', 'decision', { decision: kind, name: who, comment: comment.value, seen: ( config.visit && config.visit.hash ) || '' } )
+				.then( ( data ) => {
+					config.decision = data;
+					config.reviewer = data.reviewer || who;
+					storeName( config.reviewer );
+					showWho();
+					showDecision();
+					status.textContent = approving ? S.approvedDone : S.changesDone;
+					doAction( 'axleReview.decisionSubmitted', data );
+					closePopover();
+				} )
+				.catch( ( problem ) => {
+					send.disabled = false;
+					send.removeAttribute( 'aria-busy' );
+					error.textContent = problem.message || S.failed;
+				} );
+		} );
+
+		( known ? comment : name ).focus();
+	}
+
+	/* What changed since the last visit */
+
+	function startChanges() {
+		const visit = config.visit || {};
+		const filtered = applyFilters( 'axleReview.changesBar', visit.changes );
+		const changes = filtered && 'object' === typeof filtered ? filtered : null;
+		if ( ! changes || ! visit.summary ) {
+			return;
+		}
+
+		const targets = [];
+		const place = ( entry, kind ) => {
+			if ( ! /^[0-9.]+$/.test( entry.path ) ) {
+				return;
+			}
+			const node = document.querySelector( '[data-axr-block="' + entry.path + '"]' );
+			if ( ! node ) {
+				return;
+			}
+			node.classList.add( 'axr-changed', 'axr-changed--' + kind );
+			node.setAttribute( 'data-axr-mark', 'new' === kind ? S.markNew : S.markChanged );
+			if ( 'static' === window.getComputedStyle( node ).position ) {
+				node.style.position = 'relative';
+			}
+			targets.push( { node, entry } );
+
+			if ( entry.before ) {
+				const text = el( 'span', { class: 'axr-before__text', id: 'axr-before-' + entry.path.replace( /\./g, '-' ), hidden: true } );
+				text.textContent = S.before + ' ' + entry.before;
+				const toggle = el( 'button', { type: 'button', class: 'axr-button axr-before__toggle', 'aria-expanded': 'false', 'aria-controls': text.id, text: S.showBefore } );
+				toggle.addEventListener( 'click', () => {
+					const open = text.hasAttribute( 'hidden' );
+					text.toggleAttribute( 'hidden', ! open );
+					toggle.setAttribute( 'aria-expanded', open ? 'true' : 'false' );
+					toggle.textContent = open ? S.hideBefore : S.showBefore;
+				} );
+				node.insertAdjacentElement( 'afterend', el( 'p', { class: 'axr-before' }, [ toggle, text ] ) );
+			}
+		};
+		( changes.changed || [] ).forEach( ( entry ) => place( entry, 'changed' ) );
+		( changes.added || [] ).forEach( ( entry ) => place( entry, 'new' ) );
+		targets.sort( ( a, b ) => ( a.node.compareDocumentPosition( b.node ) & 4 ? -1 : 1 ) );
+
+		let at = -1;
+		const live = el( 'p', { class: 'axr-sr', role: 'status' } );
+		const go = ( step ) => {
+			if ( ! targets.length ) {
+				return;
+			}
+			at = ( at + step + targets.length ) % targets.length;
+			const target = targets[ at ];
+			target.node.setAttribute( 'tabindex', '-1' );
+			target.node.scrollIntoView( { block: 'center' } );
+			target.node.focus( { preventScroll: true } );
+			live.textContent = ( at + 1 ) + ' / ' + targets.length + ': ' + ( target.entry.label || '' );
+		};
+
+		const previous = el( 'button', { type: 'button', class: 'axr-button', text: S.previous } );
+		const next = el( 'button', { type: 'button', class: 'axr-button axr-button--primary', text: S.next } );
+		const close = el( 'button', { type: 'button', class: 'axr-button', text: S.close } );
+		previous.addEventListener( 'click', () => go( -1 ) );
+		next.addEventListener( 'click', () => go( 1 ) );
+
+		const extras = [];
+		if ( ( changes.removed || [] ).length ) {
+			const list = el(
+				'ul',
+				{ class: 'axr-changes__removed' },
+				changes.removed.map( ( entry ) => el( 'li', {}, [ el( 'strong', { text: ( entry.label || '' ) + ': ' } ), el( 'span', { text: entry.before || S.noBefore } ) ] ) )
+			);
+			extras.push( el( 'details', { class: 'axr-changes__details' }, [ el( 'summary', { text: S.removedHead + ' (' + changes.removed.length + ')' } ), list ] ) );
+		}
+		if ( ( changes.meta || [] ).length ) {
+			extras.push( el( 'p', { class: 'axr-changes__meta', text: S.metaHead + ' ' + changes.meta.join( ', ' ) } ) );
+		}
+		if ( ! visit.revisions && ( changes.changed || [] ).length ) {
+			extras.push( el( 'p', { class: 'axr-changes__meta', text: S.noBefore } ) );
+		}
+
+		const bar = el( 'div', { class: 'axr-changes', id: 'axr-changes', role: 'region', 'aria-label': S.changedTitle }, [
+			el( 'p', { class: 'axr-changes__text', text: visit.summary } ),
+			targets.length ? previous : null,
+			targets.length ? next : null,
+			close,
+			live,
+			...extras,
+		] );
+		close.addEventListener( 'click', () => {
+			bar.remove();
+			targets.forEach( ( target ) => {
+				target.node.classList.remove( 'axr-changed', 'axr-changed--changed', 'axr-changed--new' );
+				target.node.removeAttribute( 'data-axr-mark' );
+			} );
+			document.querySelectorAll( '.axr-before' ).forEach( ( node ) => node.remove() );
+		} );
+		document.body.appendChild( bar );
+	}
+
 	/* Start */
 
 	function start() {
 		document.body.appendChild( toolbar );
 		document.body.classList.add( 'axr-reviewing' );
 		showWho();
+		showDecision();
+		startChanges();
 		api( 'POST', 'ping', { render: config.render } ).catch( () => {} );
 	}
 

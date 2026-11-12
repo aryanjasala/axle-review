@@ -50,7 +50,7 @@ final class GateTest extends ReviewTestCase {
 	 * @return Gate
 	 */
 	private function gate(): Gate {
-		return new Gate( new Settings(), new Notes() );
+		return new Gate( new Settings(), new Notes(), $this->approvals() );
 	}
 
 	/**
@@ -130,5 +130,92 @@ final class GateTest extends ReviewTestCase {
 	public function test_without_the_capability_there_is_no_override(): void {
 		Functions\when( 'user_can' )->justReturn( false );
 		$this->assertSame( 'axle_review_cannot_override', $this->gate()->override( $this->draft(), 2, 'Because.' )->get_error_code() );
+	}
+
+	/**
+	 * Gate wants approvals, and the post has an approval from an older version.
+	 */
+	private function wants_approvals( int $required = 2 ): void {
+		$this->options['axle_review_settings'] = array( 'gate_enabled' => true, 'gate_min_approvals' => $required );
+		$this->open                            = array();
+		Functions\when( 'get_post_meta' )->justReturn( '' );
+	}
+
+	public function test_too_few_approvals_block_publishing_with_their_own_error(): void {
+		$this->wants_approvals();
+		$this->wpdb->lists[] = array();
+		Actions\expectDone( 'axle_review_gate_approvals_blocked' )->once()->with( Mockery::type( \WP_Post::class ), Mockery::type( 'array' ), 'publish' );
+
+		$error = $this->gate()->check( $this->draft(), 'publish' );
+
+		$this->assertSame( Gate::ERROR_APPROVALS, $error->get_error_code() );
+		$this->assertSame( 409, $error->get_error_data()['status'] );
+		$this->assertStringContainsString( '0 of 2 approvals', $error->get_error_message() );
+	}
+
+	public function test_enough_fresh_approvals_let_the_post_through(): void {
+		$this->wants_approvals( 1 );
+		$snapshot            = \AryanX\Axle\Review\Fingerprint::encode( \AryanX\Axle\Review\Fingerprint::of( $this->draft() ) );
+		$this->wpdb->lists[] = array( $this->link_row( array( 'decision' => 'approved', 'decision_snapshot' => $snapshot ) ) );
+
+		$this->assertNull( $this->gate()->check( $this->draft(), 'publish' ) );
+	}
+
+	public function test_an_approval_does_not_cover_the_edit_made_in_the_same_save(): void {
+		$this->wants_approvals( 1 );
+		$snapshot = \AryanX\Axle\Review\Fingerprint::encode( \AryanX\Axle\Review\Fingerprint::of( $this->draft() ) );
+		Functions\when( 'parse_blocks' )->alias( static fn( $content ) => 'edited' === $content ? array( array( 'blockName' => 'core/paragraph', 'attrs' => array(), 'innerBlocks' => array(), 'innerHTML' => '<p>Edited</p>' ) ) : array() );
+		$this->wpdb->lists[] = array( $this->link_row( array( 'decision' => 'approved', 'decision_snapshot' => $snapshot ) ) );
+
+		$error = $this->gate()->check( $this->draft(), 'publish', array( 'post_content' => 'edited' ) );
+
+		$this->assertSame( Gate::ERROR_APPROVALS, $error->get_error_code() );
+		$this->assertSame( 0, $this->gate()->approvals_missing( $this->draft() )['counted'] ?? 0 );
+	}
+
+	public function test_old_approvals_can_still_count_when_the_setting_says_so(): void {
+		$this->wants_approvals( 1 );
+		$this->options['axle_review_settings']['gate_fresh_only'] = false;
+		$this->wpdb->lists[]                                      = array( $this->link_row( array( 'decision' => 'approved', 'decision_snapshot' => '{"v":1,"hash":"old","blocks":[]}' ) ) );
+
+		$this->assertNull( $this->gate()->check( $this->draft(), 'publish' ) );
+	}
+
+	public function test_approvals_are_not_asked_for_unless_the_gate_is_on(): void {
+		$this->wants_approvals();
+		$this->options['axle_review_settings']['gate_enabled'] = false;
+
+		$this->assertNull( $this->gate()->check( $this->draft(), 'publish' ) );
+		$this->assertNull( $this->gate()->readiness( $this->draft() )['approvals'] );
+	}
+
+	public function test_an_override_covers_missing_approvals_and_is_logged_as_a_note(): void {
+		$this->wants_approvals();
+		$this->wpdb->lists[] = array();
+		$this->wpdb->lists[] = array();
+		Functions\when( 'user_can' )->justReturn( true );
+		Functions\when( 'sanitize_textarea_field' )->returnArg();
+		Functions\when( 'get_userdata' )->justReturn( new \WP_User( array( 'ID' => 1, 'display_name' => 'Admin', 'user_email' => 'a@example.com' ) ) );
+		$logged = array();
+		Functions\when( 'wp_insert_comment' )->alias(
+			static function ( $data ) use ( &$logged ) {
+				$logged = $data;
+				return 88;
+			}
+		);
+
+		$this->assertTrue( $this->gate()->override( $this->draft(), 1, 'Client approved by phone.' ) );
+
+		$this->assertSame( 1, $logged['comment_approved'], 'The log note is resolved, so it never blocks the gate itself.' );
+		$this->assertStringContainsString( 'Client approved by phone.', $logged['comment_content'] );
+		$this->assertNull( $this->gate()->check( $this->draft(), 'publish' ) );
+	}
+
+	public function test_the_approvals_message_is_filterable(): void {
+		$count = array( 'required' => 2, 'counted' => 1, 'approved' => 2, 'outdated' => 1, 'fresh_only' => true );
+		$this->assertStringContainsString( 'older version', Gate::approvals_message( $count, $this->draft() ) );
+
+		Filters\expectApplied( 'axle_review_gate_approvals_message' )->once()->andReturn( 'Need sign-off.' );
+		$this->assertSame( 'Need sign-off.', Gate::approvals_message( $count, $this->draft() ) );
 	}
 }

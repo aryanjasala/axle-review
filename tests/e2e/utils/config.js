@@ -12,5 +12,5 @@ module.exports = {
 	// This plugin's own Docker site by default. A shared site can be used by pointing WP_COMPOSE_DIR at its compose folder.
 	COMPOSE_DIR: process.env.WP_COMPOSE_DIR || path.join( __dirname, '..', 'env' ),
 	// Options the plugin stores, cleared before each run.
-	OPTIONS: ['axle_review_settings', 'axle_review_paused', 'axle_review_slack', 'axle_review_slack_status', 'axle_review_cache_warning', 'axr_fixture_mail'],
+	OPTIONS: ['axle_review_settings', 'axle_review_paused', 'axle_review_slack', 'axle_review_slack_status', 'axle_review_cache_warning', 'axr_fixture_mail', 'axr_fixture_no_revisions'],
 };

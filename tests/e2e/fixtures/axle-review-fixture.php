@@ -36,3 +36,31 @@ add_filter(
 		return 5;
 	}
 );
+
+// Revisions can be turned off from a test: wp option update axr_fixture_no_revisions 1
+add_filter(
+	'wp_revisions_to_keep',
+	static function ( $num ) {
+		return get_option( 'axr_fixture_no_revisions' ) ? 0 : $num;
+	},
+	20
+);
+
+// A shortcode that lists posts of every status the way careless theme code might: the review page must not show other drafts.
+add_shortcode(
+	'axr_drafts',
+	static function () {
+		$query = new WP_Query(
+			array(
+				'post_type'      => 'post',
+				'post_status'    => array( 'draft', 'publish' ),
+				'posts_per_page' => 20,
+			)
+		);
+		$items = '';
+		foreach ( $query->posts as $item ) {
+			$items .= '<li>' . esc_html( $item->post_title ) . '</li>';
+		}
+		return '<ul class="axr-leak-test">' . $items . '</ul>';
+	}
+);

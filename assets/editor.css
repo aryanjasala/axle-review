@@ -20,12 +20,12 @@
 .axr-link__status,
 .axr-link__meta,
 .axr-muted {
-	color: var(--axle-muted, #646970);
+	opacity: 0.8;
 }
 
 .axr-link--revoked .axr-link__head,
 .axr-link--expired .axr-link__head {
-	color: var(--axle-muted, #646970);
+	opacity: 0.8;
 }
 
 .axr-link__actions {
@@ -67,4 +67,41 @@
 
 .axr-override {
 	margin-top: 12px;
+}
+
+.axr-decisions,
+.axr-changes-list {
+	margin: 8px 0;
+	padding: 0;
+	list-style: none;
+}
+
+.axr-changes-list {
+	padding-left: 16px;
+	list-style: disc;
+}
+
+.axr-decision {
+	margin: 0 0 12px;
+	padding: 0 0 12px;
+	border-bottom: 1px solid rgba( 0, 0, 0, 0.1 );
+}
+
+.axr-decision p {
+	margin: 4px 0;
+}
+
+.axr-decision__state {
+	font-weight: 600;
+}
+
+.axr-state__text {
+	margin: 0 0 8px;
+}
+
+.axr-confirm-modal__actions {
+	display: flex;
+	justify-content: flex-end;
+	gap: 8px;
+	margin-top: 16px;
 }

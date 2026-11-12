@@ -13,7 +13,8 @@ defined( 'ABSPATH' ) || exit;
  * Registers Axle Review's abilities, for agents through the MCP adapter and
  * anything else through /wp-abilities/v1/. Each one checks the same
  * capabilities as the screens. There are no abilities to pause links, change
- * settings or publish past the gate.
+ * settings, publish past the gate, or approve a draft: only a reviewer can
+ * approve, through their own link.
  */
 final class Abilities implements Service {
 
@@ -55,20 +56,29 @@ final class Abilities implements Service {
 	private Settings $settings;
 
 	/**
+	 * Approvals.
+	 *
+	 * @var Approvals
+	 */
+	private Approvals $approvals;
+
+	/**
 	 * Sets up the abilities.
 	 *
-	 * @param Settings $settings Settings.
-	 * @param Links    $links    Links.
-	 * @param Events   $events   Events.
-	 * @param Notes    $notes    Notes.
-	 * @param Gate     $gate     Gate.
+	 * @param Settings  $settings  Settings.
+	 * @param Links     $links     Links.
+	 * @param Events    $events    Events.
+	 * @param Notes     $notes     Notes.
+	 * @param Gate      $gate      Gate.
+	 * @param Approvals $approvals Approvals.
 	 */
-	public function __construct( Settings $settings, Links $links, Events $events, Notes $notes, Gate $gate ) {
-		$this->settings = $settings;
-		$this->links    = $links;
-		$this->events   = $events;
-		$this->notes    = $notes;
-		$this->gate     = $gate;
+	public function __construct( Settings $settings, Links $links, Events $events, Notes $notes, Gate $gate, Approvals $approvals ) {
+		$this->settings  = $settings;
+		$this->links     = $links;
+		$this->events    = $events;
+		$this->notes     = $notes;
+		$this->gate      = $gate;
+		$this->approvals = $approvals;
 	}
 
 	/**
@@ -310,9 +320,61 @@ final class Abilities implements Service {
 						'type'  => 'array',
 						'items' => $note_schema,
 					),
+					'approvals'    => array(
+						'type'       => array( 'object', 'null' ),
+						'properties' => array(
+							'required' => array( 'type' => 'integer' ),
+							'counted'  => array( 'type' => 'integer' ),
+						),
+					),
 				),
 			),
 			array( $this, 'readiness' ),
+			array( $this, 'can_edit_input_post' ),
+			array(
+				'readonly'   => true,
+				'idempotent' => true,
+			)
+		);
+
+		$this->ability(
+			'get-review-state',
+			__( 'Get the review state of a post', 'axle-review' ),
+			__( 'Who was asked to review a post and what each reviewer decided: approved or changes requested, with their name, comment and when. Says whether an approval is out of date because the post was edited afterwards, and which blocks changed. Reading only: nobody can approve through an ability.', 'axle-review' ),
+			array(
+				'type'                 => 'object',
+				'properties'           => array(
+					'post' => array(
+						'type'    => 'integer',
+						'minimum' => 1,
+					),
+				),
+				'required'             => array( 'post' ),
+				'additionalProperties' => false,
+			),
+			array(
+				'type'       => 'object',
+				'properties' => array(
+					'post'      => array( 'type' => 'integer' ),
+					'revisions' => array( 'type' => 'boolean' ),
+					'text'      => array( 'type' => 'string' ),
+					'summary'   => array(
+						'type'       => 'object',
+						'properties' => array(
+							'reviewers' => array( 'type' => 'integer' ),
+							'approved'  => array( 'type' => 'integer' ),
+							'outdated'  => array( 'type' => 'integer' ),
+							'changes'   => array( 'type' => 'integer' ),
+							'waiting'   => array( 'type' => 'integer' ),
+						),
+					),
+					'decisions' => array(
+						'type'  => 'array',
+						'items' => array( 'type' => 'object' ),
+					),
+				),
+			),
+			array( $this, 'review_state' ),
 			array( $this, 'can_edit_input_post' ),
 			array(
 				'readonly'   => true,
@@ -501,6 +563,13 @@ final class Abilities implements Service {
 				'revoked_at'     => array( 'type' => 'string' ),
 				'last_opened_at' => array( 'type' => 'string' ),
 				'notes'          => array( 'type' => 'integer' ),
+				'reviewer'       => array( 'type' => 'string' ),
+				'decision'       => array(
+					'type' => 'string',
+					'enum' => array( '', 'approved', 'changes_requested' ),
+				),
+				'decided_at'     => array( 'type' => 'string' ),
+				'outdated'       => array( 'type' => 'boolean' ),
 			),
 		);
 	}
@@ -784,7 +853,24 @@ final class Abilities implements Service {
 			'would_block'  => $ready['blocks'],
 			'open_notes'   => $ready['open'],
 			'blocking'     => array_map( array( Notes::class, 'to_array' ), $ready['notes'] ),
+			'approvals'    => $ready['approvals'],
 		);
+	}
+
+	/**
+	 * Execute: get-review-state.
+	 *
+	 * @param array|null $input Input.
+	 * @return array|\WP_Error
+	 */
+	public function review_state( $input = null ) {
+		$input = (array) $input;
+		$post  = get_post( (int) ( $input['post'] ?? 0 ) );
+		if ( ! $post ) {
+			return new \WP_Error( 'axle_review_no_post', __( 'That post does not exist.', 'axle-review' ) );
+		}
+
+		return $this->approvals->post_state( $post );
 	}
 
 	/**

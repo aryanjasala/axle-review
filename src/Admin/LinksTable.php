@@ -7,6 +7,7 @@
 
 namespace AryanX\Axle\Review\Admin;
 
+use AryanX\Axle\Review\Approvals;
 use AryanX\Axle\Review\Events;
 use AryanX\Axle\Review\Links;
 use AryanX\Axle\Review\Settings;
@@ -85,6 +86,7 @@ final class LinksTable extends \WP_List_Table {
 			'access'  => __( 'Access', 'axle-review' ),
 			'views'   => __( 'Views', 'axle-review' ),
 			'notes'   => __( 'Notes', 'axle-review' ),
+			'answer'  => __( 'Answer', 'axle-review' ),
 			'expires' => __( 'Expires', 'axle-review' ),
 			'status'  => __( 'Status', 'axle-review' ),
 		);
@@ -140,7 +142,7 @@ final class LinksTable extends \WP_List_Table {
 	 * @return string
 	 */
 	public function empty_message(): string {
-		return __( 'No review links yet. Create one from the "Share for review" panel in the editor, or with "Share for review" under a draft in the posts list.', 'axle-review' );
+		return __( 'No review links yet. Links you create for drafts show up here, with who opened them and what each reviewer answered. Create one from the "Share for review" panel in the editor, or with "Share for review" under a draft in the posts list.', 'axle-review' );
 	}
 
 	/**
@@ -169,11 +171,27 @@ final class LinksTable extends \WP_List_Table {
 		$actions = array(
 			'activity' => sprintf( '<a href="%1$s">%2$s</a>', esc_url( LinksPage::url( array( 'activity' => (int) $item['id'] ) ) ), esc_html__( 'Activity', 'axle-review' ) ),
 		);
+		if ( '' !== $item['decision'] && 'active' === $item['status'] && ( Approvals::CHANGES_REQUESTED === $item['decision'] || '' !== $item['outdated_at'] ) ) {
+			$actions['ask'] = sprintf(
+				'<a href="%1$s">%2$s</a>',
+				esc_url(
+					wp_nonce_url(
+						add_query_arg(
+							array(
+								'action' => 'axle_review_ask_again',
+								'link'   => (int) $item['id'],
+							),
+							admin_url( 'admin-post.php' )
+						),
+						'axle_review_ask_again_' . (int) $item['id']
+					)
+				),
+				esc_html__( 'Ask again', 'axle-review' )
+			);
+		}
 		if ( 'revoked' !== $item['status'] ) {
-			/* translators: %s: link label. */
-			$confirm           = sprintf( __( 'Revoke "%s"? Anyone who has it can no longer open the draft. This cannot be undone.', 'axle-review' ), $label );
 			$actions['revoke'] = sprintf(
-				'<a href="%1$s" class="submitdelete" onclick="return window.confirm( \'%3$s\' );">%2$s</a>',
+				'<a href="%1$s" class="submitdelete" data-axr-confirm="%3$s" data-axr-confirm-label="%4$s">%2$s</a>',
 				esc_url(
 					wp_nonce_url(
 						add_query_arg(
@@ -181,13 +199,15 @@ final class LinksTable extends \WP_List_Table {
 								'action' => 'axle_review_revoke',
 								'link'   => (int) $item['id'],
 							),
-							admin_url( 'admin-post.php' ) 
+							admin_url( 'admin-post.php' )
 						),
-						'axle_review_revoke_' . (int) $item['id'] 
-					) 
+						'axle_review_revoke_' . (int) $item['id']
+					)
 				),
 				esc_html__( 'Revoke', 'axle-review' ),
-				esc_attr( esc_js( $confirm ) )
+				/* translators: %s: link label. */
+				esc_attr( sprintf( __( 'Revoke "%s"? Anyone who has it can no longer open the draft. This cannot be undone.', 'axle-review' ), $label ) ),
+				esc_attr__( 'Revoke link', 'axle-review' )
 			);
 		}
 
@@ -274,16 +294,31 @@ final class LinksTable extends \WP_List_Table {
 	 * @return string
 	 */
 	protected function column_expires( $item ): string {
-		$time = (int) strtotime( (string) $item['expires_at'] . ' UTC' );
-		/* translators: %s: time span, such as "2 days". */
-		$relative = $time > time() ? __( 'in %s', 'axle-review' ) : __( '%s ago', 'axle-review' );
+		return AxleUi::relative_time( (int) strtotime( (string) $item['expires_at'] . ' UTC' ) );
+	}
 
-		return sprintf(
-			'<time datetime="%1$s" title="%2$s">%3$s</time>',
-			esc_attr( gmdate( 'c', $time ) ),
-			esc_attr( wp_date( (string) get_option( 'date_format' ) . ' ' . (string) get_option( 'time_format' ), $time ) ),
-			esc_html( sprintf( $relative, human_time_diff( $time ) ) )
-		);
+	/**
+	 * What the reviewer answered.
+	 *
+	 * @param array $item Link.
+	 * @return string
+	 */
+	protected function column_answer( $item ): string {
+		if ( '' === $item['decision'] ) {
+			return '<span class="axle-muted">' . esc_html__( 'No answer yet', 'axle-review' ) . '</span>';
+		}
+
+		$approved = Approvals::APPROVED === $item['decision'];
+		$tone     = $approved && '' === $item['outdated_at'] ? 'good' : 'warning';
+		$out      = sprintf( '<span class="axle-badge axle-badge--%1$s">%2$s</span>', esc_attr( $tone ), esc_html( Approvals::label( (string) $item['decision'] ) ) );
+		if ( '' !== $item['outdated_at'] ) {
+			$out .= '<br><span class="axle-muted">' . esc_html( $approved ? __( 'Edited since approval', 'axle-review' ) : __( 'Edited since', 'axle-review' ) ) . '</span>';
+		}
+		if ( '' !== $item['reviewer_name'] ) {
+			$out .= '<br>' . esc_html( (string) $item['reviewer_name'] ) . ', ' . AxleUi::relative_time( (int) strtotime( (string) $item['decided_at'] . ' UTC' ) ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Escaped in AxleUi.
+		}
+
+		return $out;
 	}
 
 	/**

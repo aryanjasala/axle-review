@@ -1,7 +1,8 @@
 /**
  * Axle Review in the block editor:
  *  - the "Share for review" panel: create, copy, revoke links and see their activity;
- *  - the pre-publish panel listing open notes when the publish gate is on;
+ *  - the review state: who approved, who asked for changes, and what was edited after an approval;
+ *  - the pre-publish panel listing open notes and missing approvals when the publish gate is on;
  *  - a watcher that puts reviewers' new notes on their blocks while the editor is open,
  *    so the next save keeps them;
  *  - ?axr_note=<id> in the URL selects the block that note is on.
@@ -10,6 +11,7 @@
  *  - filter axleReview.expiryChoices ( choices ): [ { value: seconds, label } ].
  *  - action axleReview.linkCreated ( result ) after a link was created.
  *  - action axleReview.noteAttachedInEditor ( { id, clientId } ).
+ *  - action axleReview.askedAgain ( result ) after a reviewer was asked to look again.
  */
 ( function ( wp, config ) {
 	'use strict';
@@ -22,7 +24,7 @@
 	const { Fragment, useState, useEffect, useCallback } = wp.element;
 	const { __, _n, sprintf } = wp.i18n;
 	const { registerPlugin } = wp.plugins;
-	const { PanelRow, Button, TextControl, SelectControl, ToggleControl, TextareaControl, Notice, Spinner } = wp.components;
+	const { PanelRow, Button, TextControl, SelectControl, ToggleControl, TextareaControl, Notice, Spinner, Modal } = wp.components;
 	const { useSelect, select, dispatch } = wp.data;
 	const apiFetch = wp.apiFetch;
 	const { addQueryArgs } = wp.url;
@@ -46,9 +48,71 @@
 		note: __( 'Left a note', 'axle-review' ),
 		reply_seen: __( 'Saw replies', 'axle-review' ),
 		denied: __( 'Refused', 'axle-review' ),
+		decision: __( 'Answered', 'axle-review' ),
+	};
+	const DECISION = {
+		approved: __( 'Approved', 'axle-review' ),
+		changes_requested: __( 'Changes requested', 'axle-review' ),
 	};
 
-	const when = ( iso ) => ( iso ? new Date( iso ).toLocaleString() : '' );
+	const UNITS = [
+		[ 'year', 31536000 ],
+		[ 'month', 2592000 ],
+		[ 'day', 86400 ],
+		[ 'hour', 3600 ],
+		[ 'minute', 60 ],
+	];
+
+	/**
+	 * "5 minutes ago" in the page language; the exact time goes in the title.
+	 *
+	 * @param {string} iso ISO 8601 time.
+	 * @return {string} Relative text.
+	 */
+	function relative( iso ) {
+		const seconds = Math.round( ( new Date( iso ).getTime() - Date.now() ) / 1000 );
+		if ( Math.abs( seconds ) < 60 ) {
+			return __( 'Just now', 'axle-review' );
+		}
+		const unit = UNITS.find( ( entry ) => Math.abs( seconds ) >= entry[ 1 ] ) || UNITS[ UNITS.length - 1 ];
+		try {
+			return new Intl.RelativeTimeFormat( document.documentElement.lang || undefined, { numeric: 'auto' } ).format( Math.round( seconds / unit[ 1 ] ), unit[ 0 ] );
+		} catch ( error ) {
+			return new Date( iso ).toLocaleString();
+		}
+	}
+
+	function Time( { iso } ) {
+		if ( ! iso ) {
+			return null;
+		}
+		return el( 'time', { dateTime: iso, title: new Date( iso ).toLocaleString() }, relative( iso ) );
+	}
+
+	/**
+	 * The step before anything that revokes or overwrites: a core modal that says what will change and
+	 * whether it can be undone, in place of a browser dialog.
+	 */
+	function Confirm( { title, message, label, onConfirm, onCancel } ) {
+		return el(
+			Modal,
+			{ title, onRequestClose: onCancel, size: 'small', className: 'axr-confirm-modal' },
+			el( 'p', null, message ),
+			el(
+				'div',
+				{ className: 'axr-confirm-modal__actions' },
+				el( Button, { variant: 'secondary', onClick: onCancel }, __( 'Cancel', 'axle-review' ) ),
+				el( Button, { variant: 'primary', isDestructive: true, onClick: onConfirm }, label )
+			)
+		);
+	}
+
+	function notify( message, status ) {
+		const notices = dispatch( 'core/notices' );
+		if ( notices && notices.createNotice ) {
+			notices.createNotice( status || 'success', message, { type: 'snackbar', isDismissible: true } );
+		}
+	}
 
 	/* Blocks and notes */
 
@@ -168,7 +232,7 @@
 		return el(
 			'ul',
 			{ className: 'axr-activity' },
-			events.slice( 0, 20 ).map( ( event ) => el( 'li', { key: event.id }, ( EVENTS[ event.type ] || event.type ) + ', ' + when( event.created_at ) + ( event.browser ? ', ' + event.browser : '' ) ) )
+			events.slice( 0, 20 ).map( ( event ) => el( 'li', { key: event.id }, ( EVENTS[ event.type ] || event.type ) + ', ', el( Time, { iso: event.created_at } ), event.browser ? ', ' + event.browser : '' ) )
 		);
 	}
 
@@ -176,12 +240,13 @@
 		const [ open, setOpen ] = useState( false );
 		const views = link.max_views ? sprintf( /* translators: 1: views, 2: limit. */ __( '%1$d of %2$d views', 'axle-review' ), link.views, link.max_views ) : sprintf( /* translators: %d: views. */ _n( '%d view', '%d views', link.views, 'axle-review' ), link.views );
 		const notes = sprintf( /* translators: %d: notes. */ _n( '%d note', '%d notes', link.notes, 'axle-review' ), link.notes );
+		const expiry = 'expired' === link.status || 'revoked' === link.status ? __( 'Ended', 'axle-review' ) : __( 'Expires', 'axle-review' );
 
 		return el(
 			'li',
 			{ className: 'axr-link axr-link--' + link.status },
 			el( 'p', { className: 'axr-link__head' }, el( 'strong', null, link.label || sprintf( /* translators: %d: link ID. */ __( 'Link %d', 'axle-review' ), link.id ) ), ' ', el( 'span', { className: 'axr-link__status' }, STATUS[ link.status ] || link.status ) ),
-			el( 'p', { className: 'axr-link__meta' }, [ views, notes, link.email, sprintf( /* translators: %s: date. */ __( 'until %s', 'axle-review' ), when( link.expires_at ) ) ].filter( Boolean ).join( ', ' ) ),
+			el( 'p', { className: 'axr-link__meta' }, [ views, notes, link.email ].filter( Boolean ).join( ', ' ) + ', ' + expiry + ' ', el( Time, { iso: link.expires_at } ) ),
 			el(
 				'p',
 				{ className: 'axr-link__actions' },
@@ -254,10 +319,13 @@
 		);
 	}
 
-	function NewUrl( { result } ) {
+	function NewUrl( { result, again } ) {
 		const [ copied, setCopied ] = useState( false );
 		const copy = () => {
-			const done = () => setCopied( true );
+			const done = () => {
+				setCopied( true );
+				notify( __( 'Link copied.', 'axle-review' ) );
+			};
 			if ( window.navigator.clipboard ) {
 				window.navigator.clipboard.writeText( result.url ).then( done, done );
 			} else {
@@ -267,21 +335,126 @@
 		return el(
 			Notice,
 			{ status: 'success', isDismissible: false, className: 'axr-new-url' },
-			el( 'p', null, el( 'strong', null, __( 'Link created. Copy it now: it is not shown again.', 'axle-review' ) ) ),
+			el( 'p', null, el( 'strong', null, again ? __( 'The reviewer has a new link. Copy it now: it is not shown again, and the old link no longer works.', 'axle-review' ) : __( 'Link created. Copy it now: it is not shown again.', 'axle-review' ) ) ),
 			el( TextControl, { label: __( 'Review link', 'axle-review' ), value: result.url, readOnly: true, onChange: () => {}, onFocus: ( event ) => event.target.select(), __nextHasNoMarginBottom: true, __next40pxDefaultSize: true } ),
 			el( Button, { variant: 'secondary', onClick: copy }, copied ? __( 'Copied', 'axle-review' ) : __( 'Copy link', 'axle-review' ) ),
 			result.emailed && el( 'p', null, __( 'The link was emailed.', 'axle-review' ) )
 		);
 	}
 
+	/* Review state */
+
+	function ChangeList( { changes } ) {
+		const parts = [];
+		( changes.changed || [] ).forEach( ( item ) => parts.push( sprintf( /* translators: %s: block type. */ __( '%s changed', 'axle-review' ), item.label ) ) );
+		( changes.added || [] ).forEach( ( item ) => parts.push( sprintf( /* translators: %s: block type. */ __( '%s added', 'axle-review' ), item.label ) ) );
+		( changes.removed || [] ).forEach( ( item ) => parts.push( sprintf( /* translators: %s: block type. */ __( '%s removed', 'axle-review' ), item.label ) ) );
+		( changes.meta || [] ).forEach( ( label ) => parts.push( sprintf( /* translators: %s: part of the post, such as the title. */ __( '%s changed', 'axle-review' ), label ) ) );
+		if ( ! parts.length ) {
+			return null;
+		}
+		return el(
+			'ul',
+			{ className: 'axr-changes-list' },
+			parts.slice( 0, 12 ).map( ( text, index ) => el( 'li', { key: index }, text ) ),
+			parts.length > 12 && el( 'li', { key: 'more' }, sprintf( /* translators: %d: number of further changes. */ __( 'and %d more', 'axle-review' ), parts.length - 12 ) )
+		);
+	}
+
+	function Decision( { item, onAsk } ) {
+		const tone = 'approved' === item.decision && ! item.edited ? 'good' : 'warning';
+		const edited = item.edited ? ( 'approved' === item.decision ? __( 'Edited since approval', 'axle-review' ) : __( 'Edited since', 'axle-review' ) ) : '';
+
+		return el(
+			'li',
+			{ className: 'axr-decision' },
+			el(
+				'p',
+				{ className: 'axr-decision__head' },
+				el( 'strong', null, item.reviewer || item.label ),
+				' ',
+				item.decision ? el( 'span', { className: 'axr-decision__state axr-decision__state--' + tone }, DECISION[ item.decision ] || item.decision ) : el( 'span', { className: 'axr-decision__state' }, __( 'No answer yet', 'axle-review' ) ),
+				item.decided && el( Fragment, null, ' ', el( Time, { iso: item.decided } ) )
+			),
+			item.comment && el( 'p', { className: 'axr-decision__comment' }, item.comment ),
+			edited && el( 'p', { className: 'axr-decision__edited' }, el( 'strong', null, edited ), item.changes ? ':' : '' ),
+			item.changes && el( ChangeList, { changes: item.changes } ),
+			item.asked && el( 'p', { className: 'axr-muted' }, __( 'Asked to look again', 'axle-review' ), ' ', el( Time, { iso: item.asked } ) ),
+			item.can_ask && el( 'p', { className: 'axr-decision__actions' }, el( Button, { variant: 'secondary', onClick: () => onAsk( item ) }, __( 'Ask again', 'axle-review' ) ) )
+		);
+	}
+
+	function ReviewState( { postId, refreshKey, onAsked } ) {
+		const [ state, setState ] = useState( null );
+		const [ error, setError ] = useState( '' );
+		const [ asking, setAsking ] = useState( null );
+		const [ busy, setBusy ] = useState( false );
+
+		const load = useCallback( () => {
+			apiFetch( { path: addQueryArgs( '/axle-review/v1/review', { post: postId } ) } )
+				.then( ( data ) => {
+					setError( '' );
+					setState( data );
+				} )
+				.catch( ( problem ) => setError( problem.message || __( 'The review state could not be loaded. Reload the editor to try again.', 'axle-review' ) ) );
+		}, [ postId ] );
+		useEffect( load, [ load, refreshKey ] );
+
+		if ( error ) {
+			return el( Notice, { status: 'error', isDismissible: false }, error );
+		}
+		if ( ! state ) {
+			return el( 'p', { 'aria-busy': 'true' }, el( Spinner ) );
+		}
+
+		const ask = () => {
+			setBusy( true );
+			apiFetch( { path: '/axle-review/v1/links/' + asking.link + '/ask-again', method: 'POST' } )
+				.then( ( result ) => {
+					setBusy( false );
+					setAsking( null );
+					doAction( 'axleReview.askedAgain', result );
+					notify( result.emailed ? __( 'Asked again, and emailed the new link.', 'axle-review' ) : __( 'Asked again. Copy the new link now.', 'axle-review' ) );
+					onAsked( result );
+					load();
+				} )
+				.catch( ( problem ) => {
+					setBusy( false );
+					setAsking( null );
+					notify( problem.message || __( 'The reviewer could not be asked again.', 'axle-review' ), 'error' );
+				} );
+		};
+
+		return el(
+			Fragment,
+			null,
+			el( 'p', { className: 'axr-state__text', role: 'status' }, el( 'strong', null, state.text || __( 'Nobody was asked to review this draft yet.', 'axle-review' ) ) ),
+			! state.revisions && el( Notice, { status: 'info', isDismissible: false }, __( 'Revisions are off for this post. Reviewers who come back still see which blocks changed, but not what the blocks said before.', 'axle-review' ) ),
+			state.decisions.length > 0 && el( 'ul', { className: 'axr-decisions' }, state.decisions.map( ( item ) => el( Decision, { key: item.link, item, onAsk: setAsking } ) ) ),
+			asking &&
+				el( Confirm, {
+					title: __( 'Ask this reviewer again', 'axle-review' ),
+					message: __( 'The reviewer gets a new link and sees only what changed since they answered. The old link stops working. This cannot be undone.', 'axle-review' ),
+					label: busy ? __( 'Asking', 'axle-review' ) : __( 'Ask again', 'axle-review' ),
+					onConfirm: ask,
+					onCancel: () => setAsking( null ),
+				} )
+		);
+	}
+
+	/* Share for review */
+
 	function SharePanel() {
-		const { postId, status, isNew } = useSelect( ( store ) => {
+		const { postId, status, isNew, saving } = useSelect( ( store ) => {
 			const editor = store( 'core/editor' );
-			return { postId: editor.getCurrentPostId(), status: editor.getEditedPostAttribute( 'status' ), isNew: editor.isEditedPostNew() };
+			return { postId: editor.getCurrentPostId(), status: editor.getEditedPostAttribute( 'status' ), isNew: editor.isEditedPostNew(), saving: editor.isSavingPost() };
 		}, [] );
 		const [ data, setData ] = useState( null );
 		const [ created, setCreated ] = useState( null );
+		const [ again, setAgain ] = useState( false );
 		const [ error, setError ] = useState( '' );
+		const [ revoking, setRevoking ] = useState( null );
+		const [ stateKey, setStateKey ] = useState( 0 );
 
 		const load = useCallback( () => {
 			if ( ! postId || isNew ) {
@@ -289,10 +462,17 @@
 			}
 			apiFetch( { path: addQueryArgs( '/axle-review/v1/links', { post: postId } ) } )
 				.then( setData )
-				.catch( ( problem ) => setError( problem.message ) );
+				.catch( ( problem ) => setError( problem.message || __( 'The links could not be loaded. Reload the editor to try again.', 'axle-review' ) ) );
 		}, [ postId, isNew ] );
 
 		useEffect( load, [ load ] );
+
+		// Saving can change what a reviewer approved, so the state is read again after each save.
+		useEffect( () => {
+			if ( ! saving ) {
+				setStateKey( ( key ) => key + 1 );
+			}
+		}, [ saving ] );
 
 		if ( ! config.canShare ) {
 			return null;
@@ -306,38 +486,55 @@
 		} else if ( error ) {
 			body = el( Notice, { status: 'error', isDismissible: false }, error );
 		} else if ( ! data ) {
-			body = el( Spinner );
+			body = el( 'p', { 'aria-busy': 'true' }, el( Spinner ) );
 		} else {
-			const revoke = ( link ) => {
-				const name = link.label || sprintf( /* translators: %d: link ID. */ __( 'Link %d', 'axle-review' ), link.id );
-				if ( ! window.confirm( sprintf( /* translators: %s: link label. */ __( 'Revoke "%s"? Anyone who has it can no longer open the draft. This cannot be undone.', 'axle-review' ), name ) ) ) {
-					return;
-				}
-				apiFetch( { path: '/axle-review/v1/links/' + link.id, method: 'DELETE' } ).then( load );
-			};
-			const revokeAll = () => {
-				if ( ! window.confirm( __( 'Revoke every review link of this post? Nobody can open the draft through them any more. This cannot be undone.', 'axle-review' ) ) ) {
-					return;
-				}
-				apiFetch( { path: '/axle-review/v1/links/revoke-all', method: 'POST', data: { post: postId } } ).then( load );
+			const revoke = () => {
+				const target = revoking;
+				setRevoking( null );
+				apiFetch( { path: '/axle-review/v1/links/' + ( 'all' === target ? 'revoke-all' : target.id ), method: 'all' === target ? 'POST' : 'DELETE', data: 'all' === target ? { post: postId } : undefined } )
+					.then( () => {
+						notify( 'all' === target ? __( 'Every link of this post was revoked.', 'axle-review' ) : __( 'The link was revoked. It cannot be turned back on.', 'axle-review' ) );
+						load();
+						setStateKey( ( key ) => key + 1 );
+					} )
+					.catch( ( problem ) => notify( problem.message || __( 'The link could not be revoked. Try again.', 'axle-review' ), 'error' ) );
 			};
 			const live = data.links.filter( ( link ) => 'revoked' !== link.status && 'expired' !== link.status );
+			const name = revoking && 'all' !== revoking ? revoking.label || sprintf( /* translators: %d: link ID. */ __( 'Link %d', 'axle-review' ), revoking.id ) : '';
 
 			body = el(
 				Fragment,
 				null,
 				data.paused && el( Notice, { status: 'warning', isDismissible: false }, __( 'Review links are paused on this site. Nobody can open them right now.', 'axle-review' ) ),
-				created && el( NewUrl, { result: created } ),
+				el( ReviewState, {
+					postId,
+					refreshKey: stateKey,
+					onAsked: ( result ) => {
+						setCreated( result );
+						setAgain( true );
+						load();
+					},
+				} ),
+				created && el( NewUrl, { result: created, again } ),
 				data.links.length
-					? el( 'ul', { className: 'axr-links' }, data.links.map( ( link ) => el( LinkItem, { key: link.id, link, onRevoke: revoke } ) ) )
-					: el( 'p', { className: 'axr-muted' }, __( 'No review links yet. Create one to let someone without an account read this draft and leave notes on it.', 'axle-review' ) ),
-				live.length > 1 && el( PanelRow, null, el( Button, { variant: 'secondary', isDestructive: true, onClick: revokeAll }, __( 'Revoke all links', 'axle-review' ) ) ),
+					? el( 'ul', { className: 'axr-links' }, data.links.map( ( link ) => el( LinkItem, { key: link.id, link, onRevoke: setRevoking } ) ) )
+					: el( 'p', { className: 'axr-muted' }, __( 'No review links yet. Create one to let someone without an account read this draft, leave notes on it and approve it.', 'axle-review' ) ),
+				live.length > 1 && el( PanelRow, null, el( Button, { variant: 'secondary', isDestructive: true, onClick: () => setRevoking( 'all' ) }, __( 'Revoke all links', 'axle-review' ) ) ),
+				revoking &&
+					el( Confirm, {
+						title: 'all' === revoking ? __( 'Revoke every link', 'axle-review' ) : __( 'Revoke this link', 'axle-review' ),
+						message: 'all' === revoking ? __( 'Nobody can open the draft through any of its links any more. This cannot be undone.', 'axle-review' ) : sprintf( /* translators: %s: link label. */ __( 'Anyone who has "%s" can no longer open the draft. This cannot be undone.', 'axle-review' ), name ),
+						label: 'all' === revoking ? __( 'Revoke all links', 'axle-review' ) : __( 'Revoke link', 'axle-review' ),
+						onConfirm: revoke,
+						onCancel: () => setRevoking( null ),
+					} ),
 				el( 'h3', { className: 'axr-create__title' }, __( 'New link', 'axle-review' ) ),
 				el( CreateForm, {
 					postId,
 					defaults: data.default,
 					expiry: data.expiry,
 					onCreated: ( result ) => {
+						setAgain( false );
 						setCreated( result );
 						load();
 					},
@@ -374,7 +571,7 @@
 			apiFetch( { path: '/axle-review/v1/gate/override', method: 'POST', data: { post: postId, reason } } )
 				.then( () => {
 					setBusy( false );
-					setMessage( __( 'You can publish now. Your reason was added to each open note.', 'axle-review' ) );
+					setMessage( data.notes.length ? __( 'You can publish now. Your reason was added to each open note.', 'axle-review' ) : __( 'You can publish now. Your reason was added to the post as a note.', 'axle-review' ) );
 					load();
 				} )
 				.catch( ( problem ) => {
@@ -385,8 +582,8 @@
 
 		return el(
 			PluginPrePublishPanel,
-			{ title: __( 'Open notes', 'axle-review' ), initialOpen: true, className: 'axr-gate-panel' },
-			el( Notice, { status: data.override ? 'info' : 'warning', isDismissible: false }, data.override ? __( 'You chose to publish with open notes.', 'axle-review' ) : data.message ),
+			{ title: data.notes.length ? __( 'Open notes', 'axle-review' ) : __( 'Approvals', 'axle-review' ), initialOpen: true, className: 'axr-gate-panel' },
+			el( Notice, { status: data.override ? 'info' : 'warning', isDismissible: false }, data.override ? ( data.notes.length ? __( 'You chose to publish with open notes.', 'axle-review' ) : __( 'You chose to publish without enough approvals.', 'axle-review' ) ) : data.message ),
 			el(
 				'ul',
 				{ className: 'axr-gate-notes' },
@@ -398,7 +595,7 @@
 						': ',
 						note.text.slice( 0, 140 ),
 						' ',
-						el( Button, { variant: 'link', onClick: () => showNote( note.id ) }, __( 'Show', 'axle-review' ) )
+						note.path ? el( Button, { variant: 'link', onClick: () => showNote( note.id ) }, __( 'Show', 'axle-review' ) ) : el( 'a', { href: addQueryArgs( config.inboxUrl, { post_id: postId } ) }, __( 'Open in Notes', 'axle-review' ) )
 					)
 				)
 			),
@@ -407,8 +604,8 @@
 				el(
 					'div',
 					{ className: 'axr-override' },
-					el( TextareaControl, { label: __( 'Reason to publish with open notes', 'axle-review' ), value: reason, onChange: setReason, __nextHasNoMarginBottom: true } ),
-					el( Button, { variant: 'secondary', isDestructive: true, onClick: override, disabled: busy || ! reason.trim(), isBusy: busy }, __( 'Publish with open notes', 'axle-review' ) )
+					el( TextareaControl, { label: data.notes.length ? __( 'Reason to publish with open notes', 'axle-review' ) : __( 'Reason to publish without enough approvals', 'axle-review' ), value: reason, onChange: setReason, __nextHasNoMarginBottom: true } ),
+					el( Button, { variant: 'secondary', isDestructive: true, onClick: override, disabled: busy || ! reason.trim(), isBusy: busy }, data.notes.length ? __( 'Publish with open notes', 'axle-review' ) : __( 'Publish without enough approvals', 'axle-review' ) )
 				),
 			message && el( 'p', { role: 'status' }, message )
 		);

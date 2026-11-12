@@ -13,6 +13,7 @@ use AryanX\Axle\Review\Events;
 use AryanX\Axle\Review\Frontend\ReviewView;
 use AryanX\Axle\Review\Links;
 use AryanX\Axle\Review\Notes;
+use AryanX\Axle\Review\Visits;
 use AryanX\Axle\Review\Rest\GuestRoutes;
 use Brain\Monkey\Actions;
 use Brain\Monkey\Filters;
@@ -30,6 +31,11 @@ final class FrontendTest extends ReviewTestCase {
 		Functions\when( 'is_ssl' )->justReturn( false );
 		Functions\when( 'wp_privacy_anonymize_ip' )->returnArg();
 		Functions\when( 'get_post' )->justReturn( new \WP_Post( array( 'ID' => 42, 'post_type' => 'post', 'post_status' => 'draft' ) ) );
+		Functions\when( 'parse_blocks' )->justReturn( array() );
+		Functions\when( 'get_post_meta' )->justReturn( '' );
+		Functions\when( 'post_type_supports' )->justReturn( true );
+		Functions\when( 'wp_revisions_to_keep' )->justReturn( -1 );
+		Functions\when( 'wp_get_post_revisions' )->justReturn( array() );
 	}
 
 	protected function tearDown(): void {
@@ -43,7 +49,7 @@ final class FrontendTest extends ReviewTestCase {
 	 * @return ReviewView
 	 */
 	private function view(): ReviewView {
-		return new ReviewView( new Links(), new Events(), new Access( new Links(), new Events() ) );
+		return new ReviewView( new Links(), new Events(), new Access( new Links(), new Events() ), $this->approvals(), new Visits( new Links() ) );
 	}
 
 	public function test_denied_messages_are_filterable(): void {
@@ -139,7 +145,7 @@ final class FrontendTest extends ReviewTestCase {
 	}
 
 	public function test_a_guest_note_is_created_attached_and_announced(): void {
-		$routes = new GuestRoutes( new Links(), new Events(), new Access( new Links(), new Events() ), new Notes(), new Attacher() );
+		$routes = new GuestRoutes( new Links(), new Events(), new Access( new Links(), new Events() ), new Notes(), new Attacher(), $this->approvals() );
 		$this->wpdb->rows[]                          = $this->link_row();
 		$this->wpdb->vars[]                          = 0;
 		$this->transients['axle_review_render_abcd'] = time() - 10;
@@ -176,7 +182,7 @@ final class FrontendTest extends ReviewTestCase {
 	}
 
 	public function test_the_honeypot_and_a_missing_nonce_are_refused(): void {
-		$routes             = new GuestRoutes( new Links(), new Events(), new Access( new Links(), new Events() ), new Notes(), new Attacher() );
+		$routes             = new GuestRoutes( new Links(), new Events(), new Access( new Links(), new Events() ), new Notes(), new Attacher(), $this->approvals() );
 		$this->wpdb->rows[] = $this->link_row();
 		$request            = $this->guest_request( array( 'website' => 'spam.example' ) );
 		$this->assertTrue( $routes->check( $request ) );
@@ -187,5 +193,93 @@ final class FrontendTest extends ReviewTestCase {
 		$bad->shouldReceive( 'get_param' )->andReturn( 7 );
 		$bad->shouldReceive( 'get_header' )->andReturn( 'nope' );
 		$this->assertSame( 'axle_review_forbidden', $routes->check( $bad )->get_error_code() );
+	}
+
+	public function test_other_queries_on_a_review_page_only_see_public_posts(): void {
+		Functions\when( 'get_post_stati' )->justReturn( array( 'publish' ) );
+		$token              = Links::new_token();
+		$this->wpdb->rows[] = $this->link_row( array( 'token_hash' => Links::hash( $token ), 'email' => 'legal@example.com' ) );
+		$view               = $this->view();
+		$view->request( array( 'axle_review' => $token ) );
+
+		$query = new \Axr_Test_Query( array( 'post_status' => array( 'draft', 'publish', 'private' ) ) );
+		$view->public_only( $query );
+		$this->assertSame( array( 'publish' ), $query->get( 'post_status' ) );
+
+		$query = new \Axr_Test_Query( array( 'post_status' => 'inherit' ) );
+		$view->public_only( $query );
+		$this->assertSame( array( 'inherit' ), $query->get( 'post_status' ), 'Attachments stay: galleries need them.' );
+
+		$query = new \Axr_Test_Query( array( 'post_status' => 'draft,pending' ) );
+		$view->public_only( $query );
+		$this->assertSame( 'publish', $query->get( 'post_status' ), 'A query that asks only for drafts gets public posts instead.' );
+
+		$query = new \Axr_Test_Query( array( 'post_status' => 'any' ) );
+		$view->public_only( $query );
+		$this->assertSame( array( 'publish', 'inherit' ), $query->get( 'post_status' ) );
+
+		$query = new \Axr_Test_Query();
+		$view->public_only( $query );
+		$this->assertSame( '', $query->get( 'post_status' ), 'A query with no status already means published posts.' );
+	}
+
+	public function test_the_admin_bar_is_off_on_a_review_page_and_untouched_elsewhere(): void {
+		$view = $this->view();
+		$this->assertTrue( $view->no_admin_bar( true ) );
+
+		$token              = Links::new_token();
+		$this->wpdb->rows[] = $this->link_row( array( 'token_hash' => Links::hash( $token ), 'email' => 'legal@example.com' ) );
+		$view->request( array( 'axle_review' => $token ) );
+		$this->assertFalse( $view->no_admin_bar( true ) );
+	}
+
+	public function test_a_reviewer_decision_goes_through_the_route_with_the_page_they_saw(): void {
+		$routes = new GuestRoutes( new Links(), new Events(), new Access( new Links(), new Events() ), new Notes(), new Attacher(), $this->approvals() );
+		$this->wpdb->rows[] = $this->link_row();
+		$this->wpdb->vars[] = 0;
+		Functions\when( 'rest_ensure_response' )->alias( static fn( $data ) => new \WP_REST_Response( $data ) );
+		Functions\when( 'wp_insert_comment' )->justReturn( 55 );
+		Functions\when( 'wp_cache_get' )->justReturn( false );
+		Functions\when( 'wp_cache_set' )->justReturn( true );
+		Functions\when( 'get_comment' )->justReturn( null );
+
+		$request = $this->guest_request( array( 'decision' => 'changes_requested', 'name' => 'Priya', 'comment' => 'The price is wrong.', 'seen' => '' ) );
+		$this->assertTrue( $routes->check( $request ) );
+		$this->wpdb->rows[] = $this->link_row( array( 'decision' => 'changes_requested', 'reviewer_name' => 'Priya' ) );
+		$data = $routes->decide( $request )->get_data();
+
+		$this->assertSame( 'changes_requested', $data['decision'] );
+		$this->assertSame( 'Priya', $data['reviewer'] );
+		$this->assertArrayNotHasKey( 'email', $data );
+		$this->assertArrayNotHasKey( 'changes', $data, 'A reviewer never gets the editor view.' );
+	}
+
+	public function test_a_read_only_link_cannot_decide_and_the_rate_limit_applies(): void {
+		$this->assertFalse( GuestRoutes::can_decide( array( 'allow_notes' => false ) ) );
+		$this->assertTrue( GuestRoutes::can_decide( array( 'allow_notes' => true ) ) );
+
+		Filters\expectApplied( 'axle_review_decisions_per_link_per_hour' )->twice()->with( 20 )->andReturn( 9999 );
+		$this->assertSame( 200, GuestRoutes::decisions_per_hour() );
+
+		$routes = new GuestRoutes( new Links(), new Events(), new Access( new Links(), new Events() ), new Notes(), new Attacher(), $this->approvals() );
+		$this->wpdb->rows[] = $this->link_row( array( 'allow_notes' => '0' ) );
+		$request            = $this->guest_request( array( 'decision' => 'approved', 'name' => 'Priya' ) );
+		$this->assertTrue( $routes->check( $request ) );
+		$this->assertSame( 'axle_review_decision_off', $routes->decide( $request )->get_error_code() );
+
+		$this->wpdb->rows[] = $this->link_row();
+		$this->wpdb->vars[] = 200;
+		$request            = $this->guest_request( array( 'decision' => 'approved', 'name' => 'Priya' ) );
+		$this->assertTrue( $routes->check( $request ) );
+		$this->assertSame( 'axle_review_rate_limited', $routes->decide( $request )->get_error_code() );
+
+		Filters\expectApplied( 'axle_review_link_can_decide' )->once()->with( false, Mockery::type( 'array' ) )->andReturn( true );
+		$this->assertTrue( GuestRoutes::can_decide( array( 'allow_notes' => false ) ) );
+	}
+
+	public function test_decision_notes_stay_out_of_what_a_reviewer_can_read(): void {
+		$this->comment_meta[9]['_axr_decision'] = 'approved';
+		$this->assertTrue( Notes::is_decision( new \WP_Comment( array( 'comment_ID' => '9' ) ) ) );
+		$this->assertFalse( Notes::is_decision( new \WP_Comment( array( 'comment_ID' => '10' ) ) ) );
 	}
 }

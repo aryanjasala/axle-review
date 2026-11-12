@@ -8,6 +8,7 @@
 namespace AryanX\Axle\Review\Rest;
 
 use AryanX\Axle\Review\Alerts;
+use AryanX\Axle\Review\Approvals;
 use AryanX\Axle\Review\Anchor;
 use AryanX\Axle\Review\Attacher;
 use AryanX\Axle\Review\Events;
@@ -61,20 +62,29 @@ final class EditorRoutes implements Service {
 	private Gate $gate;
 
 	/**
+	 * Approvals.
+	 *
+	 * @var Approvals
+	 */
+	private Approvals $approvals;
+
+	/**
 	 * Sets up the routes.
 	 *
-	 * @param Settings $settings Settings.
-	 * @param Links    $links    Links.
-	 * @param Events   $events   Events.
-	 * @param Attacher $attacher Attacher.
-	 * @param Gate     $gate     Gate.
+	 * @param Settings  $settings  Settings.
+	 * @param Links     $links     Links.
+	 * @param Events    $events    Events.
+	 * @param Attacher  $attacher  Attacher.
+	 * @param Gate      $gate      Gate.
+	 * @param Approvals $approvals Approvals.
 	 */
-	public function __construct( Settings $settings, Links $links, Events $events, Attacher $attacher, Gate $gate ) {
-		$this->settings = $settings;
-		$this->links    = $links;
-		$this->events   = $events;
-		$this->attacher = $attacher;
-		$this->gate     = $gate;
+	public function __construct( Settings $settings, Links $links, Events $events, Attacher $attacher, Gate $gate, Approvals $approvals ) {
+		$this->settings  = $settings;
+		$this->links     = $links;
+		$this->events    = $events;
+		$this->attacher  = $attacher;
+		$this->gate      = $gate;
+		$this->approvals = $approvals;
 	}
 
 	/**
@@ -166,6 +176,27 @@ final class EditorRoutes implements Service {
 				'methods'             => 'GET',
 				'callback'            => array( $this, 'activity' ),
 				'permission_callback' => array( $this, 'can_manage_link' ),
+			)
+		);
+
+		register_rest_route(
+			$ns,
+			'/links/(?P<id>\d+)/ask-again',
+			array(
+				'methods'             => 'POST',
+				'callback'            => array( $this, 'ask_again' ),
+				'permission_callback' => array( $this, 'can_manage_link' ),
+			)
+		);
+
+		register_rest_route(
+			$ns,
+			'/review',
+			array(
+				'methods'             => 'GET',
+				'callback'            => array( $this, 'review_state' ),
+				'permission_callback' => array( $this, 'can_edit_post' ),
+				'args'                => array( 'post' => $post ),
 			)
 		);
 
@@ -374,6 +405,43 @@ final class EditorRoutes implements Service {
 	}
 
 	/**
+	 * The review state of a post: decisions, what changed since each, and whether revisions are on.
+	 *
+	 * @param \WP_REST_Request $request Request.
+	 * @return \WP_REST_Response|\WP_Error
+	 */
+	public function review_state( $request ) {
+		$post = get_post( (int) $request->get_param( 'post' ) );
+		if ( ! $post ) {
+			return new \WP_Error( 'axle_review_no_post', __( 'That post does not exist.', 'axle-review' ), array( 'status' => 404 ) );
+		}
+
+		return rest_ensure_response( $this->approvals->post_state( $post ) );
+	}
+
+	/**
+	 * Asks a reviewer to look again. The link gets a new URL, shown once, and
+	 * emailed when the link has an address.
+	 *
+	 * @param \WP_REST_Request $request Request.
+	 * @return \WP_REST_Response|\WP_Error
+	 */
+	public function ask_again( $request ) {
+		$result = $this->approvals->ask_again( (int) $request->get_param( 'id' ), get_current_user_id() );
+		if ( is_wp_error( $result ) ) {
+			return $result;
+		}
+
+		return rest_ensure_response(
+			array(
+				'url'     => $result['url'],
+				'emailed' => $result['emailed'],
+				'link'    => Links::to_public( $result['link'] ),
+			)
+		);
+	}
+
+	/**
 	 * Revokes every link of a post.
 	 *
 	 * @param \WP_REST_Request $request Request.
@@ -437,7 +505,8 @@ final class EditorRoutes implements Service {
 				'enabled'     => $ready['enabled'],
 				'blocks'      => $ready['blocks'],
 				'open'        => $ready['open'],
-				'message'     => $ready['blocks'] ? Gate::message( count( $ready['notes'] ), $post ) : '',
+				'approvals'   => $ready['approvals'],
+				'message'     => $this->gate_message( $ready, $post ),
 				'canOverride' => current_user_can( Settings::gate_override_capability() ),
 				'override'    => $this->gate->has_override( (int) $post->ID ),
 				'notes'       => array_map(
@@ -450,6 +519,25 @@ final class EditorRoutes implements Service {
 				),
 			)
 		);
+	}
+
+	/**
+	 * The message for the pre-publish panel.
+	 *
+	 * @param array    $ready Result of Gate::readiness().
+	 * @param \WP_Post $post  Post.
+	 * @return string
+	 */
+	private function gate_message( array $ready, \WP_Post $post ): string {
+		$parts = array();
+		if ( $ready['notes'] ) {
+			$parts[] = Gate::message( count( $ready['notes'] ), $post );
+		}
+		if ( $ready['approvals'] ) {
+			$parts[] = Gate::approvals_message( $ready['approvals'], $post );
+		}
+
+		return implode( ' ', $parts );
 	}
 
 	/**

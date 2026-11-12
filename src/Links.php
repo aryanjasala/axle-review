@@ -237,6 +237,88 @@ final class Links {
 	}
 
 	/**
+	 * Every link of a post, newest first, at most 100.
+	 *
+	 * @param int $post_id Post ID.
+	 * @return array[]
+	 */
+	public function for_post( int $post_id ): array {
+		global $wpdb;
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Always the live rows.
+		$rows = $wpdb->get_results( $wpdb->prepare( 'SELECT * FROM %i WHERE post_id = %d ORDER BY id DESC LIMIT 100', Schema::links_table(), $post_id ), ARRAY_A );
+
+		return array_map( array( self::class, 'normalize' ), (array) $rows );
+	}
+
+	/**
+	 * The review state of many posts in one query, for list screens: no snapshots are read.
+	 *
+	 * @param int[] $post_ids Post IDs.
+	 * @return array<int, array{reviewers: int, approved: int, outdated: int, changes: int, names: string[]}>
+	 */
+	public function decision_summaries( array $post_ids ): array {
+		global $wpdb;
+
+		$post_ids = array_values( array_unique( array_filter( array_map( 'intval', $post_ids ) ) ) );
+		if ( ! $post_ids ) {
+			return array();
+		}
+
+		$holders = implode( ', ', array_fill( 0, count( $post_ids ), '%d' ) );
+		// phpcs:disable WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQLPlaceholders.UnfinishedPrepare, WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber -- The plugin's own table; one placeholder per ID.
+		$rows = $wpdb->get_results(
+			$wpdb->prepare(
+				"SELECT id, post_id, decision, reviewer_name, outdated_at, revoked_at, expires_at, max_views, views FROM %i WHERE post_id IN ( {$holders} ) ORDER BY id DESC",
+				array_merge( array( Schema::links_table() ), $post_ids )
+			),
+			ARRAY_A
+		);
+		// phpcs:enable
+
+		$out = array();
+		foreach ( (array) $rows as $row ) {
+			$status = self::status(
+				array(
+					'revoked_at' => (string) $row['revoked_at'],
+					'expires_at' => (string) $row['expires_at'],
+					'max_views'  => (int) $row['max_views'],
+					'views'      => (int) $row['views'],
+				)
+			);
+			if ( 'revoked' === $status || ( '' === (string) $row['decision'] && 'active' !== $status ) ) {
+				continue;
+			}
+
+			$id = (int) $row['post_id'];
+			if ( ! isset( $out[ $id ] ) ) {
+				$out[ $id ] = array(
+					'reviewers' => 0,
+					'approved'  => 0,
+					'outdated'  => 0,
+					'changes'   => 0,
+					'waiting'   => 0,
+					'names'     => array(),
+				);
+			}
+
+			++$out[ $id ]['reviewers'];
+			if ( '' === (string) $row['decision'] ) {
+				++$out[ $id ]['waiting'];
+			} elseif ( 'changes_requested' === $row['decision'] ) {
+				++$out[ $id ]['changes'];
+				$out[ $id ]['names'][] = (string) $row['reviewer_name'];
+			} elseif ( ! empty( $row['outdated_at'] ) ) {
+				++$out[ $id ]['outdated'];
+			} else {
+				++$out[ $id ]['approved'];
+			}
+		}
+
+		return $out;
+	}
+
+	/**
 	 * Types the row's columns.
 	 *
 	 * @param array $row Database row.
@@ -262,6 +344,20 @@ final class Links {
 			'revoked_by'     => (int) $row['revoked_by'],
 			'last_opened_at' => (string) $row['last_opened_at'],
 		);
+
+		// Added in database version 2: the decision and what the reviewer saw. Old rows read as empty.
+		$link['reviewer_name']     = (string) ( $row['reviewer_name'] ?? '' );
+		$link['decision']          = (string) ( $row['decision'] ?? '' );
+		$link['decision_comment']  = (string) ( $row['decision_comment'] ?? '' );
+		$link['decided_at']        = (string) ( $row['decided_at'] ?? '' );
+		$link['decision_snapshot'] = (string) ( $row['decision_snapshot'] ?? '' );
+		$link['decision_note_id']  = (int) ( $row['decision_note_id'] ?? 0 );
+		$link['outdated_at']       = (string) ( $row['outdated_at'] ?? '' );
+		$link['reask_at']          = (string) ( $row['reask_at'] ?? '' );
+		$link['seen_snapshot']     = (string) ( $row['seen_snapshot'] ?? '' );
+		$link['seen_at']           = (string) ( $row['seen_at'] ?? '' );
+		$link['visit_snapshot']    = (string) ( $row['visit_snapshot'] ?? '' );
+		$link['visit_at']          = (string) ( $row['visit_at'] ?? '' );
 
 		$link['status'] = self::status( $link );
 
@@ -449,6 +545,35 @@ final class Links {
 	}
 
 	/**
+	 * Gives a live link a new token, so a fresh URL can be sent. The old URL
+	 * stops working. Only the hash of the new token is stored.
+	 *
+	 * @param int $id Link ID.
+	 * @return array{token: string, url: string}|\WP_Error
+	 */
+	public function rotate_token( int $id ) {
+		global $wpdb;
+
+		$link = $this->get( $id );
+		if ( ! $link ) {
+			return new \WP_Error( 'axle_review_no_link', __( 'That link does not exist.', 'axle-review' ), array( 'status' => 404 ) );
+		}
+
+		if ( 'active' !== $link['status'] ) {
+			return new \WP_Error( 'axle_review_link_ended', __( 'This link has ended, so it cannot be sent again. Create a new link instead.', 'axle-review' ), array( 'status' => 409 ) );
+		}
+
+		$token = self::new_token();
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- The plugin's own table.
+		$wpdb->update( Schema::links_table(), array( 'token_hash' => self::hash( $token ) ), array( 'id' => $id ) );
+
+		return array(
+			'token' => $token,
+			'url'   => self::url( $token ),
+		);
+	}
+
+	/**
 	 * Removes the email from a link, and revokes it, for the privacy eraser.
 	 *
 	 * @param int $id Link ID.
@@ -458,7 +583,34 @@ final class Links {
 
 		$this->revoke( $id, 0 );
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- The plugin's own table.
-		$wpdb->update( Schema::links_table(), array( 'email' => null ), array( 'id' => $id ) );
+		$wpdb->update(
+			Schema::links_table(),
+			array(
+				'email'            => null,
+				'reviewer_name'    => null,
+				'decision_comment' => null,
+			),
+			array( 'id' => $id )
+		);
+	}
+
+	/**
+	 * Saves some columns of a link.
+	 *
+	 * @param int   $id      Link ID.
+	 * @param array $columns Column => value. Only known columns are written.
+	 */
+	public function update_columns( int $id, array $columns ): void {
+		global $wpdb;
+
+		$allowed = array( 'reviewer_name', 'decision', 'decision_comment', 'decided_at', 'decision_snapshot', 'decision_note_id', 'outdated_at', 'reask_at', 'expires_at', 'seen_snapshot', 'seen_at', 'visit_snapshot', 'visit_at' );
+		$columns = array_intersect_key( $columns, array_flip( $allowed ) );
+		if ( ! $columns ) {
+			return;
+		}
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- The plugin's own table.
+		$wpdb->update( Schema::links_table(), $columns, array( 'id' => $id ) );
 	}
 
 	/**
@@ -501,6 +653,10 @@ final class Links {
 			'revoked_at'     => self::iso( (string) $link['revoked_at'] ),
 			'last_opened_at' => self::iso( (string) $link['last_opened_at'] ),
 			'notes'          => $notes,
+			'reviewer'       => (string) ( $link['reviewer_name'] ?? '' ),
+			'decision'       => (string) ( $link['decision'] ?? '' ),
+			'decided_at'     => self::iso( (string) ( $link['decided_at'] ?? '' ) ),
+			'outdated'       => '' !== (string) ( $link['outdated_at'] ?? '' ),
 		);
 	}
 
