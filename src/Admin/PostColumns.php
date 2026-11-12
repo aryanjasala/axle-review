@@ -7,6 +7,7 @@
 
 namespace AryanX\Axle\Review\Admin;
 
+use AryanX\Axle\Review\Approvals;
 use AryanX\Axle\Review\Links;
 use AryanX\Axle\Review\Notes;
 use AryanX\Axle\Review\Service;
@@ -28,12 +29,28 @@ final class PostColumns implements Service {
 	private Notes $notes;
 
 	/**
+	 * Links.
+	 *
+	 * @var Links
+	 */
+	private Links $links;
+
+	/**
+	 * Review state of the posts on this page, loaded once.
+	 *
+	 * @var array<int, array>|null
+	 */
+	private ?array $summaries = null;
+
+	/**
 	 * Sets up the column.
 	 *
 	 * @param Notes $notes Notes.
+	 * @param Links $links Links.
 	 */
-	public function __construct( Notes $notes ) {
+	public function __construct( Notes $notes, Links $links ) {
 		$this->notes = $notes;
+		$this->links = $links;
 	}
 
 	/**
@@ -66,12 +83,14 @@ final class PostColumns implements Service {
 		$out     = array();
 		foreach ( $columns as $key => $label ) {
 			if ( 'date' === $key ) {
-				$out['axr_notes'] = __( 'Notes', 'axle-review' );
+				$out['axr_notes']  = __( 'Notes', 'axle-review' );
+				$out['axr_review'] = __( 'Review', 'axle-review' );
 			}
 			$out[ $key ] = $label;
 		}
 		if ( ! isset( $out['axr_notes'] ) ) {
-			$out['axr_notes'] = __( 'Notes', 'axle-review' );
+			$out['axr_notes']  = __( 'Notes', 'axle-review' );
+			$out['axr_review'] = __( 'Review', 'axle-review' );
 		}
 
 		return $out;
@@ -84,6 +103,11 @@ final class PostColumns implements Service {
 	 * @param int    $post_id Post ID.
 	 */
 	public function column( $column, $post_id ): void {
+		if ( 'axr_review' === $column ) {
+			$this->review_column( (int) $post_id );
+			return;
+		}
+
 		if ( 'axr_notes' !== $column ) {
 			return;
 		}
@@ -100,6 +124,40 @@ final class PostColumns implements Service {
 			esc_url( Inbox::url( array( 'post_id' => (int) $post_id ) ) ),
 			/* translators: %d: number of open notes. */
 			esc_html( sprintf( _n( '%d open', '%d open', $count, 'axle-review' ), $count ) )
+		);
+	}
+
+	/**
+	 * Prints the review state: who approved, who asked for changes. One query
+	 * covers every post on the page, and no post content is read.
+	 *
+	 * @param int $post_id Post ID.
+	 */
+	private function review_column( int $post_id ): void {
+		if ( null === $this->summaries ) {
+			$posts           = isset( $GLOBALS['wp_query']->posts ) && is_array( $GLOBALS['wp_query']->posts ) ? $GLOBALS['wp_query']->posts : array();
+			$this->summaries = $this->links->decision_summaries( array_map( static fn( $post ) => (int) ( $post->ID ?? 0 ), $posts ) );
+		}
+
+		$counts = $this->summaries[ $post_id ] ?? null;
+		if ( ! $counts ) {
+			echo '<span class="axle-muted">' . esc_html__( 'Not shared', 'axle-review' ) . '</span>';
+			return;
+		}
+
+		$text = Approvals::summary_text( $counts, $counts['names'] );
+		$tone = 'info';
+		if ( $counts['changes'] > 0 || $counts['outdated'] > 0 ) {
+			$tone = 'warning';
+		} elseif ( $counts['approved'] > 0 && 0 === $counts['waiting'] ) {
+			$tone = 'good';
+		}
+
+		printf(
+			'<a href="%1$s" class="axle-badge axle-badge--%2$s">%3$s</a>',
+			esc_url( LinksPage::url( array( 'post_id' => $post_id ) ) ),
+			esc_attr( $tone ),
+			esc_html( $text )
 		);
 	}
 

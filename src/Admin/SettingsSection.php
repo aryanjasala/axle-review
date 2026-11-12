@@ -100,7 +100,7 @@ final class SettingsSection implements Service {
 
 		$input = is_array( $input ) ? $input : array();
 		// Unchecked boxes are absent from the form.
-		foreach ( array( 'gate_enabled', 'gate_guest_notes', 'gate_orphans', 'guest_sees_others' ) as $box ) {
+		foreach ( array( 'gate_enabled', 'gate_guest_notes', 'gate_orphans', 'guest_sees_others', 'gate_fresh_only' ) as $box ) {
 			$input[ $box ] = ! empty( $input[ $box ] );
 		}
 
@@ -163,6 +163,16 @@ final class SettingsSection implements Service {
 		printf( '<label><input type="checkbox" name="%1$s[gate_guest_notes]" value="1"%2$s> %3$s</label><br>', esc_attr( $name ), checked( $settings['gate_guest_notes'], true, false ), esc_html__( 'Count notes from reviewers', 'axle-review' ) );
 		printf( '<label><input type="checkbox" name="%1$s[gate_orphans]" value="1"%2$s> %3$s</label>', esc_attr( $name ), checked( $settings['gate_orphans'], true, false ), esc_html__( 'Count notes whose block was deleted', 'axle-review' ) );
 
+		echo '<br>';
+		printf(
+			'<label for="axr-gate-approvals">%1$s</label> <input type="number" id="axr-gate-approvals" name="%2$s[gate_min_approvals]" min="0" max="20" step="1" class="small-text" value="%3$d" aria-describedby="axr-gate-approvals-help"> <span class="description" id="axr-gate-approvals-help">%4$s</span><br>',
+			esc_html__( 'Approvals needed', 'axle-review' ),
+			esc_attr( $name ),
+			(int) $settings['gate_min_approvals'],
+			esc_html__( '0 asks for none. Reviewers approve from their review link.', 'axle-review' )
+		);
+		printf( '<label><input type="checkbox" name="%1$s[gate_fresh_only]" value="1"%2$s> %3$s</label>', esc_attr( $name ), checked( $settings['gate_fresh_only'], true, false ), esc_html__( 'Approvals of an older version of the post do not count', 'axle-review' ) );
+
 		echo '<p class="description">' . esc_html__( 'Post types (none checked means all):', 'axle-review' ) . '</p>';
 		foreach ( Settings::post_types() as $type ) {
 			$object = get_post_type_object( $type );
@@ -174,7 +184,7 @@ final class SettingsSection implements Service {
 				esc_html( $object ? (string) $object->labels->name : $type )
 			);
 		}
-		echo '<p class="description">' . esc_html__( 'People who can edit others\' posts can still publish with open notes after giving a reason, which is added as a reply to each open note. Scheduled posts are checked when they are scheduled.', 'axle-review' ) . '</p>';
+		echo '<p class="description">' . esc_html__( 'People who can edit others\' posts can still publish past the gate after giving a reason, which is added as a reply to each open note, or as a note on the post when only approvals are missing. Scheduled posts are checked when they are scheduled.', 'axle-review' ) . '</p>';
 		echo '</fieldset>';
 	}
 

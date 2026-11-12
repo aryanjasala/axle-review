@@ -73,14 +73,16 @@ final class MiscTest extends ReviewTestCase {
 		);
 		Functions\when( 'current_user_can' )->justReturn( true );
 
-		$abilities = new Abilities( new Settings(), new Links(), new Events(), new Notes(), new Gate( new Settings(), new Notes() ) );
+		$abilities = new Abilities( new Settings(), new Links(), new Events(), new Notes(), new Gate( new Settings(), new Notes() ), $this->approvals() );
 		$abilities->register_abilities();
 
 		$this->assertSame(
-			array( 'list-notes', 'get-note-thread', 'add-note', 'resolve-note', 'reopen-note', 'get-publish-readiness', 'list-review-links', 'create-review-link', 'revoke-review-link' ),
+			array( 'list-notes', 'get-note-thread', 'add-note', 'resolve-note', 'reopen-note', 'get-publish-readiness', 'get-review-state', 'list-review-links', 'create-review-link', 'revoke-review-link' ),
 			array_map( static fn( $name ) => substr( $name, strlen( 'axle-review/' ) ), array_keys( $registered ) )
 		);
 		$this->assertTrue( $registered['axle-review/list-notes']['annotations']['readonly'] );
+		$this->assertTrue( $registered['axle-review/get-review-state']['annotations']['readonly'] );
+		$this->assertArrayNotHasKey( 'axle-review/approve-draft', $registered, 'Only a reviewer can approve.' );
 		$this->assertTrue( $registered['axle-review/resolve-note']['annotations']['idempotent'] );
 		$this->assertTrue( $registered['axle-review/revoke-review-link']['annotations']['destructive'] );
 		$this->assertFalse( $registered['axle-review/add-note']['annotations']['destructive'] );

@@ -66,10 +66,10 @@
       "include": [".axr-profile"]
     },
     {
-      "name": "Posts list: the Notes column",
+      "name": "Posts list: the Notes and Review columns",
       "setup": [{ "js": "seed.js", "call": "seedReview", "save": "s" }],
       "url": "/wp-admin/edit.php?post_status=draft&post_type=post",
-      "include": [".column-axr_notes"],
+      "include": [".column-axr_notes", ".column-axr_review"],
       "cleanup": [{ "js": "seed.js", "call": "unseedReview" }]
     },
     {
@@ -119,6 +119,98 @@
       "url": "{link.path}",
       "steps": [{ "evaluate": "window.sessionStorage.setItem( 'axr-name-' + window.axleReviewGuest.link, 'Priya' )" }, { "click": "#axr-my-notes" }, { "waitFor": ".axr-panel .axr-thread" }],
       "include": [".axr-panel"]
+    },
+    {
+      "name": "Tools > Review Links, answers and Ask again",
+      "setup": [{"js": "seed.js", "call": "seedDecisions", "save": "s"}],
+      "url": "/wp-admin/tools.php?page=axle-review-links",
+      "steps": [{"waitFor": "#the-list tr"}],
+      "cleanup": [{"js": "seed.js", "call": "unseedReview"}]
+    },
+    {
+      "name": "Tools > Review Links, asking before a revoke",
+      "setup": [{"js": "seed.js", "call": "seedDecisions", "save": "s"}],
+      "url": "/wp-admin/tools.php?page=axle-review-links",
+      "steps": [{"hover": "#the-list tr"}, {"click": "#the-list tr .row-actions .submitdelete"}, {"waitFor": ".axle-confirm"}],
+      "cleanup": [{"js": "seed.js", "call": "unseedReview"}]
+    },
+    {
+      "name": "Tools > Review Links, asking before a bulk revoke",
+      "setup": [{"js": "seed.js", "call": "seedDecisions", "save": "s"}],
+      "url": "/wp-admin/tools.php?page=axle-review-links",
+      "steps": [{"click": "#cb-select-all-1"}, {"evaluate": "document.querySelector( '#bulk-action-selector-top' ).value = 'revoke'"}, {"click": "#doaction"}, {"waitFor": ".axle-confirm"}],
+      "cleanup": [{"js": "seed.js", "call": "unseedReview"}]
+    },
+    {
+      "name": "Tools > Review Links, a reviewer asked again",
+      "setup": [{"js": "seed.js", "call": "seedDecisions", "save": "s"}],
+      "url": "/wp-admin/tools.php?page=axle-review-links",
+      "steps": [{"hover": "#the-list tr:has(a[href*=ask_again])"}, {"click": "#the-list tr:has(a[href*=ask_again]) .row-actions a[href*=ask_again]"}, {"waitFor": ".axr-new-link"}],
+      "cleanup": [{"js": "seed.js", "call": "unseedReview"}]
+    },
+    {
+      "name": "Tools > Review Links, links revoked",
+      "setup": [{"js": "seed.js", "call": "seedDecisions", "save": "s"}, ["axle-review", "link", "revoke", "--post={s.post}"]],
+      "url": "/wp-admin/tools.php?page=axle-review-links&axr_revoked=3",
+      "cleanup": [{"js": "seed.js", "call": "unseedReview"}]
+    },
+    {
+      "name": "Editor: the review state with an edited approval",
+      "setup": [{"js": "seed.js", "call": "seedDecisions", "save": "s"}],
+      "editor": "{s.post}",
+      "steps": [{"evaluate": "(() => { wp.data.dispatch( 'core/edit-post' ).openGeneralSidebar( 'edit-post/document' ); if ( ! wp.data.select( 'core/editor' ).isEditorPanelOpened( 'axle-review/axle-review-share' ) ) { wp.data.dispatch( 'core/editor' ).toggleEditorPanelOpened( 'axle-review/axle-review-share' ); } })()"}, {"waitFor": ".axr-share .axr-decision"}],
+      "include": [".axr-share"],
+      "cleanup": [{"js": "seed.js", "call": "unseedReview"}]
+    },
+    {
+      "name": "Editor: asking before a revoke",
+      "setup": [{"js": "seed.js", "call": "seedDecisions", "save": "s"}],
+      "editor": "{s.post}",
+      "steps": [{"evaluate": "(() => { wp.data.dispatch( 'core/edit-post' ).openGeneralSidebar( 'edit-post/document' ); if ( ! wp.data.select( 'core/editor' ).isEditorPanelOpened( 'axle-review/axle-review-share' ) ) { wp.data.dispatch( 'core/editor' ).toggleEditorPanelOpened( 'axle-review/axle-review-share' ); } })()"}, {"waitFor": ".axr-share .axr-link"}, {"click": ".axr-link__actions .is-destructive"}, {"waitFor": ".axr-confirm-modal"}],
+      "include": [".axr-confirm-modal"],
+      "cleanup": [{"js": "seed.js", "call": "unseedReview"}]
+    },
+    {
+      "name": "Editor: missing approvals before publishing",
+      "setup": [{"js": "seed.js", "call": "seedEmpty", "save": "p"}, ["option", "update", "axle_review_settings", "{\"gate_enabled\":true,\"gate_min_approvals\":1}", "--format=json"]],
+      "editor": "{p}",
+      "steps": [{"click": ".editor-post-publish-panel__toggle, .editor-post-publish-button__button"}, {"waitFor": ".axr-gate-panel .axr-override"}],
+      "include": [".axr-gate-panel"],
+      "cleanup": [{"js": "seed.js", "call": "unseedReview"}]
+    },
+    {
+      "name": "Review page: Approve",
+      "setup": [{"js": "seed.js", "call": "seedLink", "save": "link"}],
+      "loggedOut": true,
+      "url": "{link.path}",
+      "steps": [{"click": "#axr-approve"}, {"waitFor": ".axr-popover"}],
+      "include": ["#axr-toolbar", ".axr-popover"]
+    },
+    {
+      "name": "Review page: Request changes, with an error",
+      "setup": [{"js": "seed.js", "call": "seedLink", "save": "link"}],
+      "loggedOut": true,
+      "url": "{link.path}",
+      "steps": [{"click": "#axr-request-changes"}, {"fill": "#axr-decide-name", "value": "Sam Wu"}, {"click": ".axr-popover button[type=submit]"}, {"waitFor": ".axr-popover__error:not(:empty)"}],
+      "include": ["#axr-toolbar", ".axr-popover"]
+    },
+    {
+      "name": "Review page: answered, and the draft was edited since",
+      "setup": [{"js": "seed.js", "call": "seedDecisions", "save": "s"}],
+      "loggedOut": true,
+      "url": "{s.legal.path}",
+      "steps": [{"waitFor": "#axr-toolbar"}],
+      "include": ["#axr-toolbar"],
+      "cleanup": [{"js": "seed.js", "call": "unseedReview"}]
+    },
+    {
+      "name": "Review page: what changed since your visit",
+      "setup": [{"js": "seed.js", "call": "seedReturning", "save": "s"}],
+      "loggedOut": true,
+      "url": "{s.link.path}",
+      "steps": [{"waitFor": "#axr-changes"}, {"click": "#axr-changes button:has-text('Next change')"}, {"click": ".axr-before__toggle"}],
+      "include": ["#axr-toolbar", "#axr-changes", ".axr-changed", ".axr-before"],
+      "cleanup": [{"js": "seed.js", "call": "unseedReview"}]
     },
     {
       "name": "Review page: email code form",

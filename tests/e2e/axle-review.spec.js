@@ -1,7 +1,7 @@
 // End-to-end tests. Start the test site first: npm run env:start
 // Each test checks the outcome in the database through WP-CLI as well as on screen.
 const { test, expect, wp, wpEval, openEditor, logInAs, appPasswordClient } = require( './utils' );
-const { installFixture, clearReview, createDraft, createLink, guestNote, mail, createPeople, removePeople, removePosts, seedReview, blocks } = require( './seed' );
+const { installFixture, clearReview, createDraft, createLink, guestNote, mail, createPeople, removePeople, removePosts, seedReview, blocks, decide, editPost, seedReturning } = require( './seed' );
 
 const NO_COOKIES = { storageState: { cookies: [], origins: [] } };
 
@@ -466,20 +466,18 @@ test.describe( 'Axle Review', () => {
 		await openSharePanel( page );
 		const item = page.locator( '.axr-link', { hasText: 'Agency' } );
 
-		// Revoking asks first; dismissing keeps the link.
-		let asked = '';
-		page.once( 'dialog', ( dialog ) => {
-			asked = dialog.message();
-			dialog.dismiss();
-		} );
+		// Revoking asks first, in a core modal; cancelling keeps the link.
 		await item.getByRole( 'button', { name: 'Revoke' } ).click();
-		await expect.poll( () => asked ).toContain( 'Revoke "Agency"?' );
-		expect( asked ).toContain( 'cannot be undone' );
+		const modal = page.getByRole( 'dialog', { name: 'Revoke this link' } );
+		await expect( modal ).toContainText( 'Anyone who has "Agency" can no longer open the draft' );
+		await expect( modal ).toContainText( 'cannot be undone' );
+		await modal.getByRole( 'button', { name: 'Cancel' } ).click();
+		await expect( modal ).toHaveCount( 0 );
 		await expect( item.getByRole( 'button', { name: 'Revoke' } ) ).toBeVisible();
 		expect( link( first.id ).status ).toBe( 'active' );
 
-		page.once( 'dialog', ( dialog ) => dialog.accept() );
 		await item.getByRole( 'button', { name: 'Revoke' } ).click();
+		await modal.getByRole( 'button', { name: 'Revoke link' } ).click();
 		await expect( item ).toContainText( 'Revoked' );
 		expect( link( first.id ).status ).toBe( 'revoked' );
 		expect( Number( link( first.id ).revoked_by ) ).toBe( 1 );
@@ -490,17 +488,17 @@ test.describe( 'Axle Review', () => {
 
 		// Pause every link from Tools > Review Links.
 		await page.goto( '/wp-admin/tools.php?page=axle-review-links' );
-		page.once( 'dialog', ( dialog ) => {
-			expect( dialog.message() ).toContain( 'You can undo this' );
-			dialog.accept();
-		} );
 		await page.getByRole( 'button', { name: 'Pause all links' } ).click();
+		const pause = page.getByRole( 'group' ).filter( { hasText: 'You can undo this' } );
+		await expect( pause ).toBeVisible();
+		await pause.getByRole( 'button', { name: 'Pause all links' } ).click();
 		await expect( page.locator( '.notice-success' ) ).toContainText( 'Every review link is paused.' );
 		expect( wp( 'option', 'get', 'axle_review_paused', '--format=json' ) ).toContain( '"by":1' );
 		await visitor.page.goto( second.url );
 		await expect( visitor.page.locator( '#axr-gate' ) ).toContainText( 'paused' );
 
-		await page.getByRole( 'button', { name: 'Resume all links' } ).click();
+		await expect( page.locator( '.notice-success' ).getByRole( 'button', { name: /Undo: resume all links/ } ) ).toBeVisible();
+		await page.getByRole( 'button', { name: 'Resume all links', exact: true } ).click();
 		await visitor.page.goto( second.url );
 		await expect( visitor.page.getByRole( 'heading', { name: 'Spring menu announcement' } ) ).toBeVisible();
 
@@ -508,28 +506,24 @@ test.describe( 'Axle Review', () => {
 		const third = createLink( postId, [ '--label=Press' ] );
 		await page.goto( '/wp-admin/tools.php?page=axle-review-links&status=active' );
 
-		// The row action asks first too.
+		// The row action asks first too, in place.
 		const pressRow = page.locator( '#the-list tr', { hasText: 'Press' } );
-		asked = '';
-		page.once( 'dialog', ( dialog ) => {
-			asked = dialog.message();
-			dialog.dismiss();
-		} );
 		await pressRow.hover();
 		await pressRow.getByRole( 'link', { name: 'Revoke' } ).click();
-		await expect.poll( () => asked ).toContain( 'Revoke "Press"?' );
+		const rowConfirm = pressRow.getByRole( 'group' );
+		await expect( rowConfirm ).toContainText( 'Revoke "Press"?' );
+		await expect( rowConfirm ).toContainText( 'cannot be undone' );
+		await rowConfirm.getByRole( 'button', { name: 'Cancel' } ).click();
+		await expect( rowConfirm ).toHaveCount( 0 );
 		expect( link( third.id ).status ).toBe( 'active' );
 
 		await page.locator( '#cb-select-all-1' ).check();
 		await page.locator( '#bulk-action-selector-top' ).selectOption( 'revoke' );
-		asked = '';
-		page.once( 'dialog', ( dialog ) => {
-			asked = dialog.message();
-			dialog.accept();
-		} );
 		await page.locator( '#doaction' ).click();
+		const bulk = page.getByRole( 'group' ).filter( { hasText: 'selected links' } );
+		await expect( bulk ).toContainText( 'This cannot be undone' );
+		await bulk.getByRole( 'button', { name: 'Revoke links' } ).click();
 		await expect( page.locator( '.notice-success' ) ).toContainText( 'revoked' );
-		expect( asked ).toContain( 'Revoke the selected links?' );
 		expect( link( third.id ).status ).toBe( 'revoked' );
 		expect( link( second.id ).status ).toBe( 'revoked' );
 
@@ -628,5 +622,409 @@ test.describe( 'Axle Review', () => {
 		const health = JSON.parse( wpEval( 'echo wp_json_encode( AryanX\\Axle\\Review\\Plugin::instance() ? ( new AryanX\\Axle\\Review\\Health\\SiteHealth( new AryanX\\Axle\\Review\\Settings(), new AryanX\\Axle\\Review\\Links(), AryanX\\Axle\\Review\\Plugin::instance()->gate() ) )->run() : null );' ) );
 		expect( health.status ).toBe( 'recommended' );
 		expect( health.description ).toContain( 'page cache' );
+	} );
+
+	/** Approves from a review page, as a reviewer would. */
+	async function approve( page, name = 'Leela Rao', comment = 'Terms are fine.' ) {
+		await page.locator( '#axr-approve' ).click();
+		const dialog = page.getByRole( 'dialog', { name: 'Approve this draft' } );
+		if ( await dialog.getByLabel( 'Your name' ).isVisible().catch( () => false ) ) {
+			await dialog.getByLabel( 'Your name' ).fill( name );
+		}
+		await dialog.getByLabel( 'Comment (optional)' ).fill( comment );
+		await dialog.getByRole( 'button', { name: 'Send approval' } ).click();
+		await expect( dialog ).toHaveCount( 0 );
+	}
+
+	test( 'a reviewer approves, a later edit says so, and asking again shows only what changed', async ( { page, browser } ) => {
+		const postId = createDraft( 'Spring menu announcement' );
+		const { url, id } = createLink( postId, [ '--label=Legal review' ] );
+		const reviewer = await guest( browser );
+		await reviewer.page.goto( url );
+		await approve( reviewer.page );
+		await expect( reviewer.page.locator( '.axr-toolbar__decision' ) ).toContainText( 'you approved this draft' );
+
+		let row = link( id );
+		expect( row.decision ).toBe( 'approved' );
+		expect( row.reviewer_name ).toBe( 'Leela Rao' );
+		expect( row.decision_comment ).toBe( 'Terms are fine.' );
+		expect( row.outdated_at ).toBe( '' );
+		// Mirrored as a resolved Note on the post, so it shows in Dashboard > Notes.
+		const mirror = notesOn( postId ).find( ( item ) => item.comment_content.startsWith( 'Approved this draft.' ) );
+		expect( mirror ).toMatchObject( { comment_approved: '1', comment_author: 'Leela Rao' } );
+		expect( meta( mirror.comment_ID, '_axr_decision' ) ).toBe( 'approved' );
+		// A note on a block does not count as an edit.
+		await guestNote( browser, url, { text: 'Nice intro.', path: '1' } );
+		expect( link( id ).outdated_at ).toBe( '' );
+
+		// Someone edits the post afterwards.
+		editPost( postId, 'Saturday mornings', 'Saturday mornings from 9 to 11 am' );
+		expect( link( id ).outdated_at ).not.toBe( '' );
+
+		await openEditor( page, postId );
+		await openSharePanel( page );
+		const panel = page.locator( '.axr-share' );
+		await expect( panel ).toContainText( 'Edited since approval' );
+		await expect( panel ).toContainText( 'Paragraph changed' );
+		await expect( panel ).toContainText( 'Leela Rao' );
+		await expect( panel.locator( '.axr-state__text' ) ).toContainText( '0 of 1 approved, 1 edited since approval' );
+
+		// Ask again: a core modal first, then a new link shown once.
+		await panel.getByRole( 'button', { name: 'Ask again' } ).click();
+		const modal = page.getByRole( 'dialog', { name: 'Ask this reviewer again' } );
+		await expect( modal ).toContainText( 'The old link stops working' );
+		await modal.getByRole( 'button', { name: 'Ask again' } ).click();
+		await expect( panel.locator( '.axr-new-url' ) ).toContainText( 'The reviewer has a new link' );
+		const fresh = await panel.getByLabel( 'Review link' ).inputValue();
+		expect( fresh ).toContain( 'axle_review=' );
+		expect( fresh ).not.toBe( url );
+		expect( link( id ).reask_at ).not.toBe( '' );
+		expect( link( id ).token_hash ).toBe( wpEval( `echo AryanX\\Axle\\Review\\Links::hash( ${ JSON.stringify( new URL( fresh ).searchParams.get( 'axle_review' ) ) } );` ) );
+
+		// The old link no longer opens; the new one shows only what changed since the approval.
+		const stranger = await guest( browser );
+		await stranger.page.goto( url );
+		await expect( stranger.page.locator( '#axr-gate' ) ).toContainText( 'does not work' );
+		await stranger.context.close();
+
+		await reviewer.page.goto( fresh );
+		const bar = reviewer.page.locator( '#axr-changes' );
+		await expect( bar ).toContainText( '1 change since your visit' );
+		await expect( reviewer.page.locator( '.axr-changed' ) ).toHaveCount( 1 );
+		await expect( reviewer.page.locator( '[data-axr-block="4"]' ) ).toHaveClass( /axr-changed/ );
+		await reviewer.page.getByRole( 'button', { name: 'Show previous text' } ).click();
+		await expect( reviewer.page.locator( '.axr-before__text' ) ).toContainText( 'Visit the shop on Saturday mornings for a free tasting of the new range.' );
+		await expect( reviewer.page.locator( '.axr-toolbar__decision' ) ).toContainText( 'The draft was edited after you answered' );
+
+		// Answering again makes the approval fresh.
+		await approve( reviewer.page, 'Leela Rao', 'Fine with the new time.' );
+		row = link( id );
+		expect( row.outdated_at ).toBe( '' );
+		expect( row.reask_at ).toBe( '' );
+		expect( row.decision_comment ).toBe( 'Fine with the new time.' );
+		expect( notesOn( postId ).filter( ( item ) => item.comment_content.startsWith( 'Approved this draft.' ) ) ).toHaveLength( 1 );
+		await reviewer.context.close();
+	} );
+
+	test( 'a reviewer who asks for changes needs a comment, and the answer reaches the editor and the list', async ( { page, browser } ) => {
+		const postId = createDraft( 'Spring menu announcement' );
+		const { url, id } = createLink( postId, [ '--label=Marketing' ] );
+		const reviewer = await guest( browser );
+		await reviewer.page.goto( url );
+
+		await reviewer.page.locator( '#axr-request-changes' ).click();
+		const dialog = reviewer.page.getByRole( 'dialog', { name: 'Request changes' } );
+		await dialog.getByLabel( 'Your name' ).fill( 'Sam Wu' );
+		await dialog.getByRole( 'button', { name: 'Send request' } ).click();
+		await expect( dialog.locator( '.axr-popover__error' ) ).toContainText( 'What should change?' );
+		expect( link( id ).decision ).toBe( '' );
+		await dialog.getByLabel( 'What should change?' ).fill( 'The tasting time is missing.' );
+		await dialog.getByRole( 'button', { name: 'Send request' } ).click();
+		await expect( reviewer.page.locator( '.axr-toolbar__decision' ) ).toContainText( 'you asked for changes' );
+
+		expect( link( id ).decision ).toBe( 'changes_requested' );
+		// An open note, so it counts for the publish gate and shows in the inbox.
+		const open = notesOn( postId ).find( ( item ) => item.comment_content.includes( 'Requested changes.' ) );
+		expect( open.comment_approved ).toBe( '0' );
+		// Editors hear about it like any reviewer note: an instant email to the post author.
+		expect( mail().some( ( item ) => item.message.includes( 'Sam Wu' ) ) ).toBe( true );
+
+		await page.goto( '/wp-admin/edit.php?post_status=draft&post_type=post' );
+		await expect( page.locator( `#post-${ postId } .column-axr_review` ) ).toContainText( 'Changes requested by Sam Wu' );
+		await page.goto( '/wp-admin/index.php?page=axle-review-notes&view=guests' );
+		await expect( page.locator( '#the-list' ) ).toContainText( 'Changes requested' );
+		await page.goto( '/wp-admin/tools.php?page=axle-review-links' );
+		await expect( page.locator( '#the-list tr', { hasText: 'Marketing' } ) ).toContainText( 'Changes requested' );
+
+		// The reviewer's own list of notes never shows the mirrored decision.
+		await reviewer.page.locator( '#axr-my-notes' ).click();
+		await expect( reviewer.page.locator( '.axr-panel' ) ).toContainText( 'You have not left any notes yet.' );
+		await reviewer.context.close();
+	} );
+
+	test( 'a reviewer who comes back sees the blocks that changed, with the old text from revisions', async ( { browser } ) => {
+		const { link: seeded } = seedReturning();
+		const reviewer = await guest( browser );
+		await reviewer.page.goto( seeded.url );
+
+		const bar = reviewer.page.locator( '#axr-changes' );
+		await expect( bar ).toContainText( '2 changes since your visit' );
+		await expect( reviewer.page.locator( '.axr-changed' ) ).toHaveCount( 2 );
+		await expect( reviewer.page.locator( '[data-axr-block="1"]' ) ).toHaveAttribute( 'data-axr-mark', 'Changed' );
+
+		await bar.getByRole( 'button', { name: 'Next change' } ).click();
+		await expect( reviewer.page.locator( '[data-axr-block="1"]' ) ).toBeFocused();
+		await bar.getByRole( 'button', { name: 'Next change' } ).click();
+		await expect( reviewer.page.locator( '[data-axr-block="4"]' ) ).toBeFocused();
+		await bar.getByRole( 'button', { name: 'Previous change' } ).click();
+		await expect( reviewer.page.locator( '[data-axr-block="1"]' ) ).toBeFocused();
+
+		const toggle = reviewer.page.locator( '.axr-before__toggle' ).first();
+		await toggle.click();
+		await expect( toggle ).toHaveAttribute( 'aria-expanded', 'true' );
+		await expect( reviewer.page.locator( '.axr-before__text:visible' ) ).toContainText( 'three new single origin coffees' );
+
+		// Reloading in the same session keeps the highlights; closing the bar clears them.
+		await reviewer.page.reload();
+		await expect( reviewer.page.locator( '.axr-changed' ) ).toHaveCount( 2 );
+		await reviewer.page.locator( '#axr-changes' ).getByRole( 'button', { name: 'Close' } ).click();
+		await expect( reviewer.page.locator( '.axr-changed' ) ).toHaveCount( 0 );
+
+		// The next visit starts fresh: nothing changed since the last page load.
+		const next = await guest( browser );
+		await next.page.goto( seeded.url );
+		await expect( next.page.locator( '#axr-toolbar' ) ).toBeVisible();
+		await expect( next.page.locator( '#axr-changes' ) ).toHaveCount( 0 );
+		await next.context.close();
+		await reviewer.context.close();
+	} );
+
+	test( 'with revisions off, reviewers still see what changed and the editor panel says why the old text is missing', async ( { page, browser } ) => {
+		const { post, link: seeded } = seedReturning( true );
+		const reviewer = await guest( browser );
+		await reviewer.page.goto( seeded.url );
+
+		await expect( reviewer.page.locator( '#axr-changes' ) ).toContainText( '2 changes since your visit' );
+		await expect( reviewer.page.locator( '#axr-changes' ) ).toContainText( 'The earlier text is not available.' );
+		await expect( reviewer.page.getByRole( 'button', { name: 'Show previous text' } ) ).toHaveCount( 0 );
+		await reviewer.context.close();
+
+		await openEditor( page, post );
+		await openSharePanel( page );
+		await expect( page.locator( '.axr-share' ) ).toContainText( 'Revisions are off for this post' );
+	} );
+
+	test( 'an answer to a draft that changed while the reviewer read it is refused', async ( { browser } ) => {
+		const postId = createDraft( 'Spring menu announcement' );
+		const { url, id } = createLink( postId );
+		const reviewer = await guest( browser );
+		await reviewer.page.goto( url );
+		editPost( postId, 'Pune', 'Mumbai' );
+
+		await reviewer.page.locator( '#axr-approve' ).click();
+		const dialog = reviewer.page.getByRole( 'dialog', { name: 'Approve this draft' } );
+		await dialog.getByLabel( 'Your name' ).fill( 'Leela Rao' );
+		await dialog.getByRole( 'button', { name: 'Send approval' } ).click();
+		await expect( dialog.locator( '.axr-popover__error' ) ).toContainText( 'The draft changed while you were reading it' );
+		expect( link( id ).decision ).toBe( '' );
+		await reviewer.context.close();
+	} );
+
+	test( 'the publish gate can ask for approvals, and an approval of an older version does not count', async ( { page } ) => {
+		wp( 'option', 'update', 'axle_review_settings', '{"gate_enabled":true,"gate_min_approvals":1}', '--format=json' );
+		const postId = createDraft( 'Spring menu announcement' );
+		const { id } = createLink( postId, [ '--label=Legal' ] );
+		const client = await appPasswordClient( 'admin', 'axr-approvals' );
+
+		const refused = await client.call( 'POST', `/wp/v2/posts/${ postId }`, { status: 'publish' } );
+		expect( refused.status ).toBe( 409 );
+		expect( refused.body.code ).toBe( 'axle_review_approvals_missing' );
+		expect( refused.body.message ).toContain( '0 of 1 approvals' );
+		expect( wp( 'post', 'get', String( postId ), '--field=post_status' ) ).toBe( 'draft' );
+
+		const readiness = await client.call( 'GET', `/wp-abilities/v1/abilities/axle-review/get-publish-readiness/run?input[post]=${ postId }` );
+		expect( readiness.body.would_block ).toBe( true );
+		expect( readiness.body.approvals ).toMatchObject( { required: 1, counted: 0 } );
+
+		// The pre-publish panel says so, and offers the override.
+		await openEditor( page, postId );
+		await page.getByRole( 'button', { name: 'Publish', exact: true } ).first().click();
+		await expect( page.locator( '.axr-gate-panel' ) ).toContainText( '0 of 1 approvals' );
+		await expect( page.locator( '.axr-gate-panel' ).getByLabel( 'Reason to publish without enough approvals' ) ).toBeVisible();
+
+		expect( decide( id, 'approved', 'Leela Rao' ) ).toBe( 'ok' );
+
+		// The same save that publishes also edits the text: the approval does not cover that.
+		const edited = await client.call( 'POST', `/wp/v2/posts/${ postId }`, { status: 'publish', content: blocks( [ 'A different intro.' ] ) } );
+		expect( edited.status ).toBe( 409 );
+		expect( edited.body.code ).toBe( 'axle_review_approvals_missing' );
+
+		// An edit after the approval makes it not count, and the setting can let it count.
+		editPost( postId, 'Pune', 'Mumbai' );
+		const stale = await client.call( 'POST', `/wp/v2/posts/${ postId }`, { status: 'publish' } );
+		expect( stale.status ).toBe( 409 );
+		expect( stale.body.message ).toContain( 'older version' );
+		wp( 'option', 'update', 'axle_review_settings', '{"gate_enabled":true,"gate_min_approvals":1,"gate_fresh_only":false}', '--format=json' );
+		const allowed = await client.call( 'POST', `/wp/v2/posts/${ postId }`, { status: 'publish' } );
+		expect( allowed.status ).toBe( 200 );
+
+		// Override with a reason, logged as a note on the post.
+		wp( 'option', 'update', 'axle_review_settings', '{"gate_enabled":true,"gate_min_approvals":1}', '--format=json' );
+		const second = createDraft( 'Holiday hours' );
+		const override = await client.call( 'POST', '/axle-review/v1/gate/override', { post: second, reason: 'Legal approved by phone.' } );
+		expect( override.status ).toBe( 200 );
+		const published = await client.call( 'POST', `/wp/v2/posts/${ second }`, { status: 'publish' } );
+		expect( published.status ).toBe( 200 );
+		expect( notesOn( second ).some( ( item ) => item.comment_content.includes( 'Published with 0 of 1 approvals. Reason: Legal approved by phone.' ) && '1' === item.comment_approved ) ).toBe( true );
+		await client.dispose();
+	} );
+
+	test( 'the review state is read-only for agents, and there is no way to approve for a reviewer', async () => {
+		const postId = createDraft( 'Spring menu announcement' );
+		const { id } = createLink( postId, [ '--label=Legal' ] );
+		decide( id, 'changes_requested', 'Sam Wu', 'The price is wrong.' );
+		const admin = await appPasswordClient( 'admin', 'axr-state' );
+
+		const state = await admin.call( 'GET', `/wp-abilities/v1/abilities/axle-review/get-review-state/run?input[post]=${ postId }` );
+		expect( state.status ).toBe( 200 );
+		expect( state.body.text ).toBe( 'Changes requested by Sam Wu' );
+		expect( state.body.decisions[ 0 ] ).toMatchObject( { reviewer: 'Sam Wu', decision: 'changes_requested', comment: 'The price is wrong.', edited: false } );
+
+		const listing = await admin.call( 'GET', '/wp-abilities/v1/abilities?per_page=100' );
+		const names = listing.body.filter( ( item ) => item.name.startsWith( 'axle-review/' ) ).map( ( item ) => item.name );
+		expect( names ).toContain( 'axle-review/get-review-state' );
+		expect( names.filter( ( name ) => /approve|decide|sign/.test( name ) ) ).toEqual( [] );
+		const info = listing.body.find( ( item ) => 'axle-review/get-review-state' === item.name );
+		expect( info.meta.annotations ).toMatchObject( { readonly: true } );
+
+		// POST is refused for a read-only ability, and the editor routes have no way to decide.
+		const posted = await admin.call( 'POST', '/wp-abilities/v1/abilities/axle-review/get-review-state/run', { input: { post: postId } } );
+		expect( posted.status ).toBeGreaterThanOrEqual( 400 );
+		const route = await admin.call( 'POST', '/axle-review/v1/guest/decision', { link: id, decision: 'approved', name: 'Admin' } );
+		expect( route.status ).toBe( 403 );
+		expect( link( id ).decision ).toBe( 'changes_requested' );
+
+		const author = await appPasswordClient( 'arjun', 'axr-state' );
+		const denied = await author.call( 'GET', `/wp-abilities/v1/abilities/axle-review/get-review-state/run?input[post]=${ postId }` );
+		expect( denied.status ).toBe( 403 );
+		const noRoute = await author.call( 'GET', `/axle-review/v1/review?post=${ postId }` );
+		expect( noRoute.status ).toBe( 403 );
+		await author.dispose();
+		await admin.dispose();
+	} );
+
+	test( 'WP-CLI shows the review state and asks a reviewer again', async () => {
+		const postId = createDraft( 'Spring menu announcement' );
+		const { id } = createLink( postId, [ '--label=Legal', '--email=legal@example.com' ] );
+		decide( id, 'approved', 'Leela Rao', 'Fine.' );
+		editPost( postId, 'Pune', 'Mumbai' );
+
+		const state = JSON.parse( wp( 'axle-review', 'review', 'status', String( postId ), '--format=json' ) );
+		expect( state.text ).toBe( '0 of 1 approved, 1 edited since approval' );
+		expect( state.decisions[ 0 ] ).toMatchObject( { reviewer: 'Leela Rao', outdated: true, can_ask: true } );
+		const listed = JSON.parse( wp( 'axle-review', 'link', 'list', `--post=${ postId }`, '--fields=id,decision,reviewer', '--format=json' ) );
+		expect( listed[ 0 ] ).toMatchObject( { decision: 'approved', reviewer: 'Leela Rao' } );
+
+		const fresh = wp( 'axle-review', 'link', 'ask-again', String( id ), '--porcelain', '--user=admin' );
+		expect( fresh ).toContain( 'axle_review=' );
+		expect( mail().some( ( item ) => 'legal@example.com' === item.to && item.message.includes( fresh ) && item.subject.includes( 'Please look again' ) ) ).toBe( true );
+		expect( () => wp( 'axle-review', 'link', 'ask-again', '9999' ) ).toThrow();
+
+		const noDecision = createLink( postId );
+		expect( () => wp( 'axle-review', 'link', 'ask-again', String( noDecision.id ) ) ).toThrow();
+		expect( wp( 'axle-review', 'review', 'status', String( postId ) ) ).toContain( 'Leela Rao' );
+	} );
+
+	test( 'a review page shows the draft and nothing else: no admin bar, no other drafts, no draft address in the head', async ( { page, browser } ) => {
+		createDraft( 'Secret draft two' );
+		const postId = createDraft( 'Spring menu announcement', blocks() + '\n\n<!-- wp:shortcode -->\n[axr_drafts]\n<!-- /wp:shortcode -->' );
+		const { url } = createLink( postId );
+
+		const reviewer = await guest( browser );
+		const response = await reviewer.page.goto( url );
+		const html = await reviewer.page.content();
+		await expect( reviewer.page.locator( '.axr-leak-test' ) ).toBeAttached();
+		expect( html ).not.toContain( 'Secret draft two' );
+		expect( html ).not.toContain( 'wpadminbar' );
+		expect( html ).not.toMatch( /rel=["']shortlink/ );
+		expect( html ).not.toMatch( /rel=["']canonical/ );
+		expect( html ).not.toMatch( /api\.w\.org|oembed|rest_route/ );
+		expect( response.headers()[ 'cache-control' ] ).toContain( 'no-store' );
+		expect( response.headers()[ 'link' ] || '' ).not.toContain( 'api.w.org' );
+
+		// A signed-in editor who opens the link gets the same page, without the admin bar.
+		await page.goto( url );
+		await expect( page.locator( '#wpadminbar' ) ).toHaveCount( 0 );
+		await expect( page.locator( '.axr-leak-test' ) ).not.toContainText( 'Secret draft two' );
+
+		// The editor routes are closed to a reviewer.
+		for ( const route of [ `/wp-json/axle-review/v1/review?post=${ postId }`, `/wp-json/axle-review/v1/links?post=${ postId }`, `/wp-json/axle-review/v1/gate?post=${ postId }` ] ) {
+			const answer = await reviewer.page.request.get( route );
+			expect( [ 401, 403 ] ).toContain( answer.status() );
+		}
+		await reviewer.context.close();
+	} );
+
+	test( 'a read-only link cannot approve and shows no answer buttons', async ( { browser } ) => {
+		const postId = createDraft( 'Spring menu announcement' );
+		const { url, id } = createLink( postId, [ '--no-notes' ] );
+		const reviewer = await guest( browser );
+		await reviewer.page.goto( url );
+		await expect( reviewer.page.locator( '#axr-toolbar' ) ).toBeVisible();
+		await expect( reviewer.page.locator( '#axr-approve' ) ).toHaveCount( 0 );
+
+		const refused = await reviewer.page.evaluate( async () => {
+			const config = window.axleReviewGuest;
+			const response = await window.fetch( config.root + 'decision', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json', 'X-Axle-Review-Nonce': config.nonce }, body: JSON.stringify( { link: config.link, decision: 'approved', name: 'X' } ) } );
+			return response.status;
+		} );
+		expect( refused ).toBe( 403 );
+		expect( link( id ).decision ).toBe( '' );
+		await reviewer.context.close();
+	} );
+
+	test( 'screens: help tabs, the Plugins link, the Get started card and in-place notices', async ( { page } ) => {
+		const postId = createDraft( 'Spring menu announcement' );
+		await page.goto( '/wp-admin/plugins.php' );
+		await expect( page.locator( 'tr[data-slug="axle-review"] .row-actions, tr[data-plugin^="axle-review/"] .row-actions' ).getByRole( 'link', { name: 'Review Links' } ) ).toBeVisible();
+
+		// Tools > Review Links: Get started with the first step open, then hidden for this user.
+		await page.goto( '/wp-admin/tools.php?page=axle-review-links' );
+		const steps = page.locator( '.axr-steps' );
+		await expect( steps ).toContainText( 'Get started' );
+		await expect( steps.locator( '.axle-step' ) ).toHaveCount( 3 );
+		await page.getByRole( 'button', { name: 'Help' } ).click();
+		await expect( page.locator( '#tab-link-axle-review-overview' ) ).toBeVisible();
+		await expect( page.locator( '#tab-link-axle-review-answers' ) ).toBeVisible();
+		await page.getByRole( 'button', { name: 'Help' } ).click();
+
+		createLink( postId, [ '--label=First' ] );
+		await page.reload();
+		await expect( steps.locator( '.axle-step' ).first() ).toContainText( 'Done' );
+		await steps.getByRole( 'link', { name: 'Hide this card' } ).click();
+		await expect( page.locator( '.axr-steps' ) ).toHaveCount( 0 );
+		expect( wp( 'user', 'meta', 'get', '1', 'axle_review_steps_dismissed' ) ).toBe( '1' );
+		wp( 'user', 'meta', 'delete', '1', 'axle_review_steps_dismissed' );
+
+		// The inbox has Help tabs and an empty state with a next step.
+		await page.goto( '/wp-admin/index.php?page=axle-review-notes' );
+		await expect( page.locator( '.axle-empty' ) ).toContainText( 'Notes from your team and from reviewers show up here' );
+		await expect( page.locator( '.axle-empty' ).getByRole( 'link', { name: 'Share a draft for review' } ) ).toBeVisible();
+		await page.getByRole( 'button', { name: 'Help' } ).click();
+		await expect( page.locator( '#tab-link-axle-review-views' ) ).toBeVisible();
+
+		// Resolving one note offers Undo.
+		const note = wp( 'axle-review', 'notes', 'add', String( postId ), '--block=1', '--text=Shorter intro?', '--user=admin', '--porcelain' );
+		await page.goto( '/wp-admin/index.php?page=axle-review-notes' );
+		const row = page.locator( '#the-list tr', { hasText: 'Shorter intro?' } );
+		await row.hover();
+		await row.getByRole( 'link', { name: 'Resolve' } ).click();
+		const notice = page.locator( '.notice-success' );
+		await expect( notice ).toContainText( '1 note resolved.' );
+		expect( wp( 'comment', 'get', note, '--field=comment_approved' ) ).toBe( '1' );
+		await notice.getByRole( 'link', { name: 'Undo: reopen it' } ).click();
+		expect( wp( 'comment', 'get', note, '--field=comment_approved' ) ).toBe( '0' );
+	} );
+
+	test( 'Tools > Review Links shows answers, and Ask again gives the reviewer a new link', async ( { page } ) => {
+		const { post, legal } = require( './seed' ).seedDecisions();
+		await page.goto( '/wp-admin/tools.php?page=axle-review-links' );
+		const row = page.locator( '#the-list tr', { hasText: 'Legal review' } );
+		await expect( row ).toContainText( 'Approved' );
+		await expect( row ).toContainText( 'Edited since approval' );
+		await expect( row ).toContainText( 'Leela Rao' );
+		await expect( page.locator( '#the-list tr', { hasText: 'Press' } ) ).toContainText( 'No answer yet' );
+		// Times are relative, with the exact time in the title.
+		await expect( row.locator( 'time.axle-time' ).first() ).toHaveAttribute( 'title', /\d/ );
+
+		await page.goto( '/wp-admin/edit.php?post_status=draft&post_type=post' );
+		await expect( page.locator( `#post-${ post } .column-axr_review` ) ).toContainText( 'Changes requested by Sam Wu' );
+
+		await page.goto( '/wp-admin/tools.php?page=axle-review-links' );
+		await row.hover();
+		await row.getByRole( 'link', { name: 'Ask again' } ).click();
+		await expect( page.locator( '.axr-new-link' ) ).toContainText( 'The reviewer has a new link' );
+		await expect( page.getByLabel( 'Review link' ) ).toHaveValue( /axle_review=/ );
+		expect( link( legal.id ).reask_at ).not.toBe( '' );
 	} );
 } );

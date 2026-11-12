@@ -8,12 +8,15 @@
 namespace AryanX\Axle\Review\Frontend;
 
 use AryanX\Axle\Review\Access;
+use AryanX\Axle\Review\Approvals;
 use AryanX\Axle\Review\Anchor;
 use AryanX\Axle\Review\Events;
 use AryanX\Axle\Review\Links;
 use AryanX\Axle\Review\Notes;
 use AryanX\Axle\Review\Service;
 use AryanX\Axle\Review\Settings;
+use AryanX\Axle\Review\Visits;
+use AryanX\Axle\Review\Rest\GuestRoutes;
 use const AryanX\Axle\Review\PLUGIN_FILE;
 use const AryanX\Axle\Review\VERSION;
 
@@ -54,6 +57,34 @@ final class ReviewView implements Service {
 	private Access $access;
 
 	/**
+	 * Approvals.
+	 *
+	 * @var Approvals
+	 */
+	private Approvals $approvals;
+
+	/**
+	 * Visits.
+	 *
+	 * @var Visits
+	 */
+	private Visits $visits;
+
+	/**
+	 * Whether the plugin itself is querying, which the public-only guard lets through.
+	 *
+	 * @var bool
+	 */
+	private bool $trusted = false;
+
+	/**
+	 * What the reviewer last saw, set when the page renders.
+	 *
+	 * @var array|null
+	 */
+	private ?array $visit = null;
+
+	/**
 	 * What this request is: render, code, password, denied, or empty when it is not a review request.
 	 *
 	 * @var string
@@ -91,14 +122,18 @@ final class ReviewView implements Service {
 	/**
 	 * Sets up the view.
 	 *
-	 * @param Links  $links  Links.
-	 * @param Events $events Events.
-	 * @param Access $access Access.
+	 * @param Links     $links  Links.
+	 * @param Events    $events Events.
+	 * @param Access    $access    Access.
+	 * @param Approvals $approvals Approvals.
+	 * @param Visits    $visits    Visits.
 	 */
-	public function __construct( Links $links, Events $events, Access $access ) {
-		$this->links  = $links;
-		$this->events = $events;
-		$this->access = $access;
+	public function __construct( Links $links, Events $events, Access $access, Approvals $approvals, Visits $visits ) {
+		$this->links     = $links;
+		$this->events    = $events;
+		$this->access    = $access;
+		$this->approvals = $approvals;
+		$this->visits    = $visits;
 	}
 
 	/**
@@ -115,6 +150,63 @@ final class ReviewView implements Service {
 		add_action( 'wp_enqueue_scripts', array( $this, 'enqueue' ) );
 		add_filter( 'comments_open', array( $this, 'comments_closed' ), 99, 2 );
 		add_filter( 'wp_robots', array( $this, 'robots' ), 99 );
+		add_filter( 'show_admin_bar', array( $this, 'no_admin_bar' ), 99 ); // phpcs:ignore WordPressVIPMinimum.UserExperience.AdminBarRemoval.RemovalDetected -- Only on a review page, where an admin bar would show a signed-in visitor more than the draft.
+		add_action( 'pre_get_posts', array( $this, 'public_only' ), 99 );
+		add_action( 'wp', array( $this, 'trim_head' ) );
+	}
+
+	/**
+	 * No admin bar on a review page, even for a signed-in visitor: it would
+	 * show them things about the site that are not part of the draft.
+	 *
+	 * @param bool $show Whether to show it.
+	 * @return bool
+	 */
+	public function no_admin_bar( $show ): bool {
+		return $this->active() ? false : (bool) $show;
+	}
+
+	/**
+	 * Every other query on a review page (widgets, query loops, shortcodes,
+	 * related posts) only sees public posts and attachments. Only the main
+	 * query may ask for the draft, and the review request does that itself.
+	 * The plugin's own look at the draft's revisions is let through.
+	 *
+	 * @param mixed $query Query.
+	 */
+	public function public_only( $query ): void {
+		if ( ! $this->active() || $this->trusted || ! $query instanceof \WP_Query || $query->is_main_query() ) {
+			return;
+		}
+
+		$status = $query->get( 'post_status' );
+		$wanted = is_array( $status ) ? $status : ( '' === (string) $status ? array() : array_map( 'trim', explode( ',', (string) $status ) ) );
+		if ( ! $wanted ) {
+			return;
+		}
+
+		// "inherit" is the status of attachments, which galleries and the media blocks ask for.
+		$safe = array_merge( array_values( get_post_stati( array( 'public' => true ) ) ), array( 'inherit' ) );
+		$keep = in_array( 'any', $wanted, true ) ? $safe : array_values( array_intersect( $wanted, $safe ) );
+		$query->set( 'post_status', $keep ? $keep : 'publish' );
+		$query->set( 'perm', '' );
+	}
+
+	/**
+	 * Takes the links to the draft's address (shortlink, canonical, REST and
+	 * oEmbed discovery) out of the page head.
+	 */
+	public function trim_head(): void {
+		if ( ! $this->active() ) {
+			return;
+		}
+
+		remove_action( 'wp_head', 'rel_canonical' );
+		remove_action( 'wp_head', 'wp_shortlink_wp_head', 10 );
+		remove_action( 'wp_head', 'rest_output_link_wp_head', 10 );
+		remove_action( 'wp_head', 'wp_oembed_add_discovery_links' );
+		remove_action( 'template_redirect', 'wp_shortlink_header', 11 );
+		remove_action( 'template_redirect', 'rest_output_link_header', 11 );
 	}
 
 	/**
@@ -231,6 +323,7 @@ final class ReviewView implements Service {
 			$this->session = $session;
 			$this->state   = 'render';
 			$this->links->touch( (int) $link['id'] );
+			$this->visit( false );
 			return;
 		}
 
@@ -267,6 +360,7 @@ final class ReviewView implements Service {
 		$this->session = $this->access->start( $link, $verified || '' !== $link['email'] );
 		$this->state   = 'render';
 		$this->events->add( (int) $link['id'], 'open' );
+		$this->visit( true );
 
 		/**
 		 * Fires when someone opened a review link and a session started.
@@ -275,6 +369,20 @@ final class ReviewView implements Service {
 		 * @param array $session The session: id, expires, verified.
 		 */
 		do_action( 'axle_review_link_opened', $this->links->get( (int) $link['id'] ), $this->session );
+	}
+
+	/**
+	 * Records the page load and what changed since the reviewer's last look.
+	 *
+	 * @param bool $new_session Whether a session just started.
+	 */
+	private function visit( bool $new_session ): void {
+		$post = $this->link ? get_post( (int) $this->link['post_id'] ) : null;
+		if ( $post instanceof \WP_Post ) {
+			$this->trusted = true;
+			$this->visit   = $this->visits->record( (array) $this->link, $post, $new_session );
+			$this->trusted = false;
+		}
 	}
 
 	/**
@@ -632,7 +740,7 @@ final class ReviewView implements Service {
 
 	/**
 	 * Adds the block path and hash to each block of the reviewed post, for
-	 * note mode.
+	 * note mode and for outlining what changed since the reviewer's last visit.
 	 *
 	 * @param string $content Content.
 	 * @return string
@@ -640,7 +748,7 @@ final class ReviewView implements Service {
 	public function mark_blocks( $content ): string {
 		$content = (string) $content;
 		$link    = $this->link();
-		if ( ! $link || ! $link['allow_notes'] || (int) get_the_ID() !== (int) $link['post_id'] || ! has_blocks( $content ) ) {
+		if ( ! $link || (int) get_the_ID() !== (int) $link['post_id'] || ! has_blocks( $content ) ) {
 			return $content;
 		}
 
@@ -678,31 +786,58 @@ final class ReviewView implements Service {
 	 */
 	public static function toolbar_strings(): array {
 		$strings = array(
-			'title'        => __( 'Review', 'axle-review' ),
-			'leaveNote'    => __( 'Leave a note', 'axle-review' ),
-			'stopNotes'    => __( 'Stop leaving notes', 'axle-review' ),
-			'myNotes'      => __( 'View notes I left', 'axle-review' ),
-			'noteMode'     => __( 'Click a block, or Tab to it and press Enter, to leave a note on it. Escape stops.', 'axle-review' ),
-			'name'         => __( 'Your name', 'axle-review' ),
-			'note'         => __( 'Your note', 'axle-review' ),
-			'email'        => __( 'Your email (optional)', 'axle-review' ),
-			'website'      => __( 'Leave this empty', 'axle-review' ),
-			'missing'      => __( 'Write your name and a note first.', 'axle-review' ),
-			'submit'       => __( 'Send note', 'axle-review' ),
-			'cancel'       => __( 'Cancel', 'axle-review' ),
-			'sent'         => __( 'Note sent. Thank you.', 'axle-review' ),
-			'failed'       => __( 'The note could not be sent.', 'axle-review' ),
-			'noNotes'      => __( 'You have not left any notes yet.', 'axle-review' ),
-			'resolved'     => __( 'Resolved', 'axle-review' ),
-			'open'         => __( 'Open', 'axle-review' ),
-			'reply'        => __( 'Reply', 'axle-review' ),
-			'close'        => __( 'Close', 'axle-review' ),
-			'noBlocks'     => __( 'This page is not built with blocks, so notes on blocks are not available. You can still read it.', 'axle-review' ),
-			'notesOff'     => __( 'Notes are turned off for this link. You can read the page.', 'axle-review' ),
-			'quoted'       => __( 'About the text:', 'axle-review' ),
+			'title'         => __( 'Review', 'axle-review' ),
+			'leaveNote'     => __( 'Leave a note', 'axle-review' ),
+			'stopNotes'     => __( 'Stop leaving notes', 'axle-review' ),
+			'myNotes'       => __( 'View notes I left', 'axle-review' ),
+			'noteMode'      => __( 'Click a block, or Tab to it and press Enter, to leave a note on it. Escape stops.', 'axle-review' ),
+			'name'          => __( 'Your name', 'axle-review' ),
+			'note'          => __( 'Your note', 'axle-review' ),
+			'email'         => __( 'Your email (optional)', 'axle-review' ),
+			'website'       => __( 'Leave this empty', 'axle-review' ),
+			'missing'       => __( 'Write your name and a note first.', 'axle-review' ),
+			'submit'        => __( 'Send note', 'axle-review' ),
+			'cancel'        => __( 'Cancel', 'axle-review' ),
+			'sent'          => __( 'Note sent. Thank you.', 'axle-review' ),
+			'failed'        => __( 'The note could not be sent.', 'axle-review' ),
+			'noNotes'       => __( 'You have not left any notes yet.', 'axle-review' ),
+			'resolved'      => __( 'Resolved', 'axle-review' ),
+			'open'          => __( 'Open', 'axle-review' ),
+			'reply'         => __( 'Reply', 'axle-review' ),
+			'close'         => __( 'Close', 'axle-review' ),
+			'noBlocks'      => __( 'This page is not built with blocks, so notes on blocks are not available. You can still read it.', 'axle-review' ),
+			'notesOff'      => __( 'Notes are turned off for this link. You can read the page.', 'axle-review' ),
+			'quoted'        => __( 'About the text:', 'axle-review' ),
 			/* translators: %s: reviewer name. */
-			'reviewingAs'  => __( 'Reviewing as %s', 'axle-review' ),
-			'notesHeading' => __( 'Your notes', 'axle-review' ),
+			'reviewingAs'   => __( 'Reviewing as %s', 'axle-review' ),
+			'notesHeading'  => __( 'Your notes', 'axle-review' ),
+			'approve'       => __( 'Approve', 'axle-review' ),
+			'changes'       => __( 'Request changes', 'axle-review' ),
+			'approveTitle'  => __( 'Approve this draft', 'axle-review' ),
+			'changesTitle'  => __( 'Request changes', 'axle-review' ),
+			'comment'       => __( 'Comment (optional)', 'axle-review' ),
+			'commentNeeded' => __( 'What should change?', 'axle-review' ),
+			'sendApprove'   => __( 'Send approval', 'axle-review' ),
+			'sendChanges'   => __( 'Send request', 'axle-review' ),
+			'nameNeeded'    => __( 'Write your name first.', 'axle-review' ),
+			'approvedDone'  => __( 'You approved this draft. Thank you.', 'axle-review' ),
+			'changesDone'   => __( 'Your request for changes was sent. Thank you.', 'axle-review' ),
+			/* translators: %s: reviewer name. */
+			'youApproved'   => __( '%s, you approved this draft.', 'axle-review' ),
+			/* translators: %s: reviewer name. */
+			'youChanges'    => __( '%s, you asked for changes.', 'axle-review' ),
+			'editedSince'   => __( 'The draft was edited after you answered.', 'axle-review' ),
+			'changedTitle'  => __( 'Changed since your last visit', 'axle-review' ),
+			'next'          => __( 'Next change', 'axle-review' ),
+			'previous'      => __( 'Previous change', 'axle-review' ),
+			'showBefore'    => __( 'Show previous text', 'axle-review' ),
+			'hideBefore'    => __( 'Hide previous text', 'axle-review' ),
+			'before'        => __( 'Before:', 'axle-review' ),
+			'markNew'       => __( 'New', 'axle-review' ),
+			'markChanged'   => __( 'Changed', 'axle-review' ),
+			'removedHead'   => __( 'Removed', 'axle-review' ),
+			'noBefore'      => __( 'The earlier text is not available.', 'axle-review' ),
+			'metaHead'      => __( 'Also changed:', 'axle-review' ),
 		);
 
 		/**
@@ -717,6 +852,70 @@ final class ReviewView implements Service {
 		}
 
 		return $strings;
+	}
+
+	/**
+	 * The reviewer's own decision, for the toolbar.
+	 *
+	 * @param array         $link Link.
+	 * @param \WP_Post|null $post Post.
+	 * @return array{decision: string, reviewer: string, comment: string, decided: string, edited: bool}
+	 */
+	private function decision_view( array $link, ?\WP_Post $post ): array {
+		if ( '' === $link['decision'] || ! $post ) {
+			return array(
+				'decision' => '',
+				'reviewer' => (string) $link['reviewer_name'],
+				'comment'  => '',
+				'decided'  => '',
+				'edited'   => false,
+			);
+		}
+
+		return GuestRoutes::guest_decision( $this->approvals->link_state( $link, $post ) );
+	}
+
+	/**
+	 * What changed since the reviewer's last visit, for the toolbar.
+	 *
+	 * @return array{hash: string, summary: string, since: string, changes: array|null, revisions: bool}
+	 */
+	private function visit_view(): array {
+		$visit   = $this->visit ? $this->visit : array(
+			'hash'      => '',
+			'since'     => '',
+			'changes'   => null,
+			'revisions' => false,
+		);
+		$summary = '';
+
+		if ( is_array( $visit['changes'] ) ) {
+			$time = '' === $visit['since'] ? 0 : (int) strtotime( (string) $visit['since'] );
+			$day  = $time ? wp_date( 'l', $time ) : '';
+			$days = $time && time() - $time > 5 * DAY_IN_SECONDS ? wp_date( (string) get_option( 'date_format' ), $time ) : $day;
+			$n    = (int) $visit['changes']['count'];
+
+			$summary = '' === $days
+				? sprintf(
+					/* translators: %d: number of changes. */
+					_n( '%d change since your last visit', '%d changes since your last visit', $n, 'axle-review' ),
+					$n
+				)
+				: sprintf(
+					/* translators: 1: number of changes, 2: weekday or date of the last visit. */
+					_n( '%1$d change since your visit on %2$s', '%1$d changes since your visit on %2$s', $n, 'axle-review' ),
+					$n,
+					$days
+				);
+		}
+
+		return array(
+			'hash'      => (string) $visit['hash'],
+			'summary'   => $summary,
+			'since'     => (string) $visit['since'],
+			'changes'   => $visit['changes'],
+			'revisions' => (bool) $visit['revisions'],
+		);
 	}
 
 	/**
@@ -748,6 +947,10 @@ final class ReviewView implements Service {
 				'locked'     => '' !== $link['email'],
 				'maxLength'  => Notes::max_length(),
 				'strings'    => self::toolbar_strings(),
+				'decide'     => GuestRoutes::can_decide( $link ),
+				'reviewer'   => (string) $link['reviewer_name'],
+				'decision'   => $this->decision_view( $link, $post ),
+				'visit'      => $this->visit_view(),
 			)
 		);
 	}

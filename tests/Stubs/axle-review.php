@@ -178,3 +178,17 @@ class Axr_Fake_Wpdb {
 function wp_json_encode_stub( $value ) {
 	return json_encode( $value );
 }
+
+/**
+ * A secondary query that can be changed, the way pre_get_posts changes one.
+ */
+class Axr_Test_Query extends WP_Query {
+
+	public function set( $key, $value ) {
+		$this->query_vars[ $key ] = $value;
+	}
+
+	public function is_main_query() {
+		return false;
+	}
+}

@@ -8,6 +8,7 @@
 namespace AryanX\Axle\Review\Rest;
 
 use AryanX\Axle\Review\Access;
+use AryanX\Axle\Review\Approvals;
 use AryanX\Axle\Review\Attacher;
 use AryanX\Axle\Review\Events;
 use AryanX\Axle\Review\Links;
@@ -65,6 +66,13 @@ final class GuestRoutes implements Service {
 	private Attacher $attacher;
 
 	/**
+	 * Approvals.
+	 *
+	 * @var Approvals
+	 */
+	private Approvals $approvals;
+
+	/**
 	 * The link and session of the current request, set by the permission check.
 	 *
 	 * @var array{link: array, session: array}|null
@@ -74,18 +82,20 @@ final class GuestRoutes implements Service {
 	/**
 	 * Sets up the routes.
 	 *
-	 * @param Links    $links    Links.
-	 * @param Events   $events   Events.
-	 * @param Access   $access   Access.
-	 * @param Notes    $notes    Notes.
-	 * @param Attacher $attacher Attacher.
+	 * @param Links     $links    Links.
+	 * @param Events    $events   Events.
+	 * @param Access    $access   Access.
+	 * @param Notes     $notes    Notes.
+	 * @param Attacher  $attacher  Attacher.
+	 * @param Approvals $approvals Approvals.
 	 */
-	public function __construct( Links $links, Events $events, Access $access, Notes $notes, Attacher $attacher ) {
-		$this->links    = $links;
-		$this->events   = $events;
-		$this->access   = $access;
-		$this->notes    = $notes;
-		$this->attacher = $attacher;
+	public function __construct( Links $links, Events $events, Access $access, Notes $notes, Attacher $attacher, Approvals $approvals ) {
+		$this->links     = $links;
+		$this->events    = $events;
+		$this->access    = $access;
+		$this->notes     = $notes;
+		$this->attacher  = $attacher;
+		$this->approvals = $approvals;
 	}
 
 	/**
@@ -163,6 +173,37 @@ final class GuestRoutes implements Service {
 							'type'    => 'string',
 							'default' => '',
 						),
+					),
+				),
+			)
+		);
+
+		register_rest_route(
+			self::NS,
+			'/guest/decision',
+			array(
+				'methods'             => 'POST',
+				'callback'            => array( $this, 'decide' ),
+				'permission_callback' => array( $this, 'check' ),
+				'args'                => array(
+					'link'     => $link,
+					'decision' => array(
+						'type'     => 'string',
+						'required' => true,
+						'enum'     => Approvals::decisions(),
+					),
+					'name'     => array(
+						'type'    => 'string',
+						'default' => '',
+					),
+					'comment'  => array(
+						'type'    => 'string',
+						'default' => '',
+					),
+					'seen'     => array(
+						'type'    => 'string',
+						'default' => '',
+						'pattern' => '^[a-f0-9]*$',
 					),
 				),
 			)
@@ -253,6 +294,87 @@ final class GuestRoutes implements Service {
 		 * @param int $seconds Default 3, between 0 and 60.
 		 */
 		return max( 0, min( 60, (int) apply_filters( 'axle_review_min_seconds', 3 ) ) );
+	}
+
+	/**
+	 * Whether a link may take a decision: not a read-only link.
+	 *
+	 * @param array $link Link.
+	 * @return bool
+	 */
+	public static function can_decide( array $link ): bool {
+		/**
+		 * Filters whether a reviewer may approve or ask for changes through a link.
+		 * Read-only links (notes turned off) cannot by default.
+		 *
+		 * @param bool  $allowed Default: the link lets the reviewer leave notes.
+		 * @param array $link    The link.
+		 */
+		return (bool) apply_filters( 'axle_review_link_can_decide', ! empty( $link['allow_notes'] ), $link );
+	}
+
+	/**
+	 * How many decisions one link may take in an hour.
+	 *
+	 * @return int
+	 */
+	public static function decisions_per_hour(): int {
+		/**
+		 * Filters how many times one review link may take or change a decision in an hour.
+		 *
+		 * @param int $limit Default 20, between 1 and 200.
+		 */
+		return max( 1, min( 200, (int) apply_filters( 'axle_review_decisions_per_link_per_hour', 20 ) ) );
+	}
+
+	/**
+	 * Records the reviewer's decision.
+	 *
+	 * @param \WP_REST_Request $request Request.
+	 * @return \WP_REST_Response|\WP_Error
+	 */
+	public function decide( $request ) {
+		$link = $this->current['link'] ?? array();
+
+		if ( ! self::can_decide( $link ) ) {
+			return new \WP_Error( 'axle_review_decision_off', __( 'This link is read only, so it cannot approve or ask for changes.', 'axle-review' ), array( 'status' => 403 ) );
+		}
+
+		if ( $this->events->count_since( (int) $link['id'], 'decision', time() - HOUR_IN_SECONDS ) >= self::decisions_per_hour() ) {
+			return new \WP_Error( 'axle_review_rate_limited', __( 'Too many answers from this link in the last hour. Try again later.', 'axle-review' ), array( 'status' => 429 ) );
+		}
+
+		$name = trim( (string) $request->get_param( 'name' ) );
+		$name = '' !== $name ? $name : (string) $link['reviewer_name'];
+
+		$state = $this->approvals->decide(
+			$link,
+			(string) $request->get_param( 'decision' ),
+			$name,
+			(string) $request->get_param( 'comment' ),
+			(string) $request->get_param( 'seen' )
+		);
+		if ( is_wp_error( $state ) ) {
+			return $state;
+		}
+
+		return rest_ensure_response( self::guest_decision( $state ) );
+	}
+
+	/**
+	 * What a reviewer may see of their own decision.
+	 *
+	 * @param array $state Result of Approvals::link_state().
+	 * @return array
+	 */
+	public static function guest_decision( array $state ): array {
+		return array(
+			'decision' => (string) $state['decision'],
+			'reviewer' => (string) $state['reviewer'],
+			'comment'  => (string) $state['comment'],
+			'decided'  => (string) $state['decided'],
+			'edited'   => (bool) $state['edited'],
+		);
 	}
 
 	/**
@@ -408,6 +530,10 @@ final class GuestRoutes implements Service {
 		$seen  = false;
 		foreach ( (array) $threads as $thread ) {
 			if ( ! $thread instanceof \WP_Comment ) {
+				continue;
+			}
+
+			if ( Notes::is_decision( $thread ) ) {
 				continue;
 			}
 

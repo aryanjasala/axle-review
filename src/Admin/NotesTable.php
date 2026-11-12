@@ -8,6 +8,7 @@
 namespace AryanX\Axle\Review\Admin;
 
 use AryanX\Axle\Review\Anchor;
+use AryanX\Axle\Review\Approvals;
 use AryanX\Axle\Review\Notes;
 
 defined( 'ABSPATH' ) || exit;
@@ -129,10 +130,10 @@ final class NotesTable extends \WP_List_Table {
 	 */
 	public function empty_message(): string {
 		if ( 'unresolved' === ( $this->filters['view'] ?? '' ) ) {
-			return __( 'No open notes. Everything is resolved.', 'axle-review' );
+			return __( 'No open notes. Notes from your team and from reviewers show up here as they come in. Everything is resolved for now.', 'axle-review' );
 		}
 
-		return __( 'No notes match.', 'axle-review' );
+		return __( 'No notes match these filters. Notes from your team and from reviewers show up here.', 'axle-review' );
 	}
 
 	/**
@@ -181,7 +182,13 @@ final class NotesTable extends \WP_List_Table {
 		);
 		Inbox::queue_reply_form( $thread );
 
-		return sprintf( '<p class="axr-note-text">%s</p>', esc_html( $text ) ) . $this->row_actions( $actions ) . $reply;
+		$badge = '';
+		if ( Notes::is_decision( $item ) ) {
+			$approved = Approvals::APPROVED === (string) get_comment_meta( $id, '_axr_decision', true );
+			$badge    = sprintf( '<span class="axle-badge axle-badge--%1$s">%2$s</span> ', $approved ? 'good' : 'warning', esc_html( Approvals::label( $approved ? Approvals::APPROVED : Approvals::CHANGES_REQUESTED ) ) );
+		}
+
+		return sprintf( '<p class="axr-note-text">%1$s%2$s</p>', $badge, esc_html( $text ) ) . $this->row_actions( $actions ) . $reply; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- $badge is built from escaped parts.
 	}
 
 	/**
@@ -211,16 +218,17 @@ final class NotesTable extends \WP_List_Table {
 			return '';
 		}
 
-		$title = get_the_title( $post );
-		$title = '' === $title ? __( '(no title)', 'axle-review' ) : $title;
-		$type  = get_post_type_object( $post->post_type );
+		$title  = get_the_title( $post );
+		$title  = '' === $title ? __( '(no title)', 'axle-review' ) : $title;
+		$type   = get_post_type_object( $post->post_type );
+		$status = get_post_status_object( $post->post_status );
 
 		return sprintf(
 			'<a href="%1$s">%2$s</a><br><span class="axle-muted">%3$s, %4$s</span>',
 			esc_url( Inbox::editor_url( $item ) ),
 			esc_html( $title ),
 			esc_html( $type ? (string) $type->labels->singular_name : $post->post_type ),
-			esc_html( (string) get_post_status_object( $post->post_status )->label )
+			esc_html( $status ? (string) $status->label : $post->post_status )
 		);
 	}
 
@@ -257,13 +265,7 @@ final class NotesTable extends \WP_List_Table {
 	 * @return string
 	 */
 	protected function column_age( $item ): string {
-		$time = (int) strtotime( (string) $item->comment_date_gmt . ' UTC' );
-		return sprintf(
-			'<time datetime="%1$s">%2$s</time>',
-			esc_attr( gmdate( 'c', $time ) ),
-			/* translators: %s: time span, such as "2 hours". */
-			esc_html( sprintf( __( '%s ago', 'axle-review' ), human_time_diff( $time ) ) )
-		);
+		return AxleUi::relative_time( (int) strtotime( (string) $item->comment_date_gmt . ' UTC' ) );
 	}
 
 	/**

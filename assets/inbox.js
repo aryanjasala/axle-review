@@ -28,6 +28,11 @@
 
 	window.axleReviewInbox = { apply };
 
+	const live = document.querySelector( '.axr-live' );
+	if ( live && window.wp && window.wp.a11y ) {
+		window.wp.a11y.speak( live.textContent.replace( /\s+/g, ' ' ).trim(), 'assertive' );
+	}
+
 	if ( 'loading' === document.readyState ) {
 		document.addEventListener( 'DOMContentLoaded', apply );
 	} else {

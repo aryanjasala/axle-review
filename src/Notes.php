@@ -132,6 +132,79 @@ final class Notes {
 	}
 
 	/**
+	 * Writes or updates the Note that mirrors a reviewer's decision, so it
+	 * shows in Dashboard > Notes. An approval is a resolved note, a request for
+	 * changes is an open one (and counts for the publish gate like any open
+	 * reviewer note). The note is not tied to a block and is hidden from the
+	 * reviewers' own lists.
+	 *
+	 * @param array  $link     The link.
+	 * @param string $decision approved or changes_requested.
+	 * @param string $name     Reviewer name.
+	 * @param string $comment  Comment, may be empty.
+	 * @return int Note ID, 0 when it could not be saved.
+	 */
+	public function save_decision_note( array $link, string $decision, string $name, string $comment ): int {
+		$approved = Approvals::APPROVED === $decision;
+		$text     = $approved ? __( 'Approved this draft.', 'axle-review' ) : __( 'Requested changes.', 'axle-review' );
+		if ( '' !== $comment ) {
+			$text .= "\n\n" . $comment;
+		}
+
+		$existing = self::get( (int) ( $link['decision_note_id'] ?? 0 ) );
+		if ( $existing && (int) $existing->comment_post_ID === (int) $link['post_id'] ) {
+			wp_update_comment(
+				wp_slash(
+					array(
+						'comment_ID'      => (int) $existing->comment_ID,
+						'comment_author'  => $name,
+						'comment_content' => $text,
+					)
+				)
+			);
+			wp_set_comment_status( (int) $existing->comment_ID, $approved ? 'approve' : 'hold' );
+			update_comment_meta( (int) $existing->comment_ID, '_axr_decision', $decision );
+
+			return (int) $existing->comment_ID;
+		}
+
+		$id = wp_insert_comment(
+			wp_slash(
+				array(
+					'comment_post_ID'      => (int) $link['post_id'],
+					'comment_type'         => 'note',
+					'comment_approved'     => $approved ? 1 : 0,
+					'comment_parent'       => 0,
+					'user_id'              => 0,
+					'comment_author'       => $name,
+					'comment_author_email' => '' !== (string) $link['email'] ? (string) $link['email'] : '',
+					'comment_author_url'   => '',
+					'comment_content'      => $text,
+				)
+			)
+		);
+		if ( ! $id ) {
+			return 0;
+		}
+
+		add_comment_meta( (int) $id, '_axr_link_id', (int) $link['id'], true );
+		add_comment_meta( (int) $id, '_axr_decision', $decision, true );
+		add_comment_meta( (int) $id, '_axr_email_verified', '' !== (string) $link['email'] ? 1 : 0, true );
+
+		return (int) $id;
+	}
+
+	/**
+	 * Whether a note is the mirror of a reviewer's decision.
+	 *
+	 * @param \WP_Comment $note Note.
+	 * @return bool
+	 */
+	public static function is_decision( \WP_Comment $note ): bool {
+		return '' !== (string) get_comment_meta( (int) $note->comment_ID, '_axr_decision', true );
+	}
+
+	/**
 	 * A note, if the ID is a note.
 	 *
 	 * @param int $id Note ID.

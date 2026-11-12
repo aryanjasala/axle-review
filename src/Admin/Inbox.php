@@ -201,7 +201,33 @@ final class Inbox implements Service {
 
 		AxleUi::enqueue();
 		wp_enqueue_style( 'axle-review-admin', plugins_url( 'assets/admin.css', PLUGIN_FILE ), array( AxleUi::HANDLE ), VERSION );
-		wp_enqueue_script( 'axle-review-inbox', plugins_url( 'assets/inbox.js', PLUGIN_FILE ), array( 'wp-hooks' ), VERSION, true );
+		wp_enqueue_script( 'axle-review-inbox', plugins_url( 'assets/inbox.js', PLUGIN_FILE ), array( 'wp-hooks', 'wp-a11y' ), VERSION, true );
+		AxleUi::help_tabs( self::help() );
+	}
+
+	/**
+	 * The Help tabs of this screen.
+	 *
+	 * @return array<int, array{id: string, title: string, content: string}>
+	 */
+	public static function help(): array {
+		return array(
+			array(
+				'id'      => 'overview',
+				'title'   => __( 'Overview', 'axle-review' ),
+				'content' => '<p>' . esc_html__( 'Every Note on the site in one list, from your team and from reviewers. You only see notes on posts you can edit.', 'axle-review' ) . '</p>',
+			),
+			array(
+				'id'      => 'views',
+				'title'   => __( 'Views and filters', 'axle-review' ),
+				'content' => '<p>' . esc_html__( 'The tabs split notes into unresolved, mentions of you, notes on your posts, notes from reviewers, resolved and all. Use the filters to narrow by post type, author or date.', 'axle-review' ) . '</p>',
+			),
+			array(
+				'id'      => 'work',
+				'title'   => __( 'Replying and resolving', 'axle-review' ),
+				'content' => '<p>' . esc_html__( 'Reply, resolve or reopen a note without opening its post. Tick several notes and use Bulk actions to resolve or reopen them at once. A reviewer who asked for changes shows as an open note until you resolve it.', 'axle-review' ) . '</p>',
+			),
+		);
 	}
 
 	/**
@@ -282,6 +308,7 @@ final class Inbox implements Service {
 				array(
 					'axr_done' => 1,
 					'axr_did'  => 'resolve' === $op ? 'resolve' : 'reopen',
+					'axr_note' => $id,
 				),
 				wp_get_referer() ? wp_get_referer() : self::url()
 			)
@@ -341,9 +368,15 @@ final class Inbox implements Service {
 		echo '<input type="hidden" name="view" value="' . esc_attr( (string) $filters['view'] ) . '">';
 		$this->filter_bar( $filters );
 		if ( $table->has_items() ) {
+			printf( '<div class="axle-scroll" tabindex="0" role="region" aria-label="%s">', esc_attr__( 'Notes', 'axle-review' ) );
 			$table->display();
+			echo '</div>';
 		} else {
-			echo '<div class="axle-empty"><p>' . esc_html( $table->empty_message() ) . '</p></div>';
+			echo '<div class="axle-empty"><p>' . esc_html( $table->empty_message() ) . '</p>';
+			if ( current_user_can( Settings::inbox_capability() ) ) {
+				printf( '<p><a class="button" href="%1$s">%2$s</a></p>', esc_url( LinksPage::url() ), esc_html__( 'Share a draft for review', 'axle-review' ) );
+			}
+			echo '</div>';
 		}
 		echo '</form>';
 
@@ -371,6 +404,7 @@ final class Inbox implements Service {
 
 		$count = absint( $_GET['axr_done'] );
 		$did   = sanitize_key( wp_unslash( $_GET['axr_did'] ) );
+		$note  = isset( $_GET['axr_note'] ) ? absint( $_GET['axr_note'] ) : 0;
 		// phpcs:enable
 
 		if ( 'reply' === $did ) {
@@ -383,7 +417,12 @@ final class Inbox implements Service {
 			$message = sprintf( _n( '%d note reopened.', '%d notes reopened.', $count, 'axle-review' ), $count );
 		}
 
-		printf( '<div class="notice notice-success is-dismissible"><p>%s</p></div>', esc_html( $message ) );
+		$undo = '';
+		if ( $note && 1 === $count && in_array( $did, array( 'resolve', 'reopen' ), true ) && Notes::get( $note ) && current_user_can( 'edit_post', (int) Notes::get( $note )->comment_post_ID ) ) {
+			$undo = sprintf( ' <a href="%1$s">%2$s</a>', esc_url( self::action_url( 'resolve' === $did ? 'reopen' : 'resolve', $note ) ), esc_html( 'resolve' === $did ? __( 'Undo: reopen it', 'axle-review' ) : __( 'Undo: resolve it', 'axle-review' ) ) );
+		}
+
+		printf( '<div class="notice notice-success is-dismissible axr-live"><p>%1$s%2$s</p></div>', esc_html( $message ), $undo ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- $undo is escaped above.
 	}
 
 	/**
@@ -422,7 +461,7 @@ final class Inbox implements Service {
 	 * @param array $filters Filters.
 	 */
 	private function filter_bar( array $filters ): void {
-		echo '<div class="axr-filters">';
+		echo '<div class="axle-toolbar">';
 
 		echo '<label for="axr-filter-type" class="screen-reader-text">' . esc_html__( 'Post type', 'axle-review' ) . '</label>';
 		echo '<select id="axr-filter-type" name="post_type"><option value="">' . esc_html__( 'All post types', 'axle-review' ) . '</option>';

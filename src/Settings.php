@@ -23,7 +23,7 @@ final class Settings {
 	/**
 	 * The stored settings merged with the defaults.
 	 *
-	 * @return array{gate_enabled: bool, gate_post_types: string[], gate_guest_notes: bool, gate_orphans: bool, default_expiry: int, default_max_views: int, guest_sees_others: bool}
+	 * @return array{gate_enabled: bool, gate_post_types: string[], gate_guest_notes: bool, gate_orphans: bool, default_expiry: int, default_max_views: int, guest_sees_others: bool, gate_min_approvals: int, gate_fresh_only: bool}
 	 */
 	public function all(): array {
 		$stored = get_option( self::OPTION, array() );
@@ -62,13 +62,15 @@ final class Settings {
 	 */
 	public static function defaults(): array {
 		return array(
-			'gate_enabled'      => false,
-			'gate_post_types'   => array(),
-			'gate_guest_notes'  => true,
-			'gate_orphans'      => true,
-			'default_expiry'    => 7 * DAY_IN_SECONDS,
-			'default_max_views' => 0,
-			'guest_sees_others' => false,
+			'gate_enabled'       => false,
+			'gate_post_types'    => array(),
+			'gate_guest_notes'   => true,
+			'gate_orphans'       => true,
+			'default_expiry'     => 7 * DAY_IN_SECONDS,
+			'default_max_views'  => 0,
+			'guest_sees_others'  => false,
+			'gate_min_approvals' => 0,
+			'gate_fresh_only'    => true,
 		);
 	}
 
@@ -76,7 +78,7 @@ final class Settings {
 	 * Cleans a settings array.
 	 *
 	 * @param mixed $input Raw settings.
-	 * @return array{gate_enabled: bool, gate_post_types: string[], gate_guest_notes: bool, gate_orphans: bool, default_expiry: int, default_max_views: int, guest_sees_others: bool}
+	 * @return array{gate_enabled: bool, gate_post_types: string[], gate_guest_notes: bool, gate_orphans: bool, default_expiry: int, default_max_views: int, guest_sees_others: bool, gate_min_approvals: int, gate_fresh_only: bool}
 	 */
 	public static function sanitize( $input ): array {
 		$input    = is_array( $input ) ? $input : array();
@@ -84,13 +86,15 @@ final class Settings {
 		$types    = isset( $input['gate_post_types'] ) ? (array) $input['gate_post_types'] : array();
 
 		return array(
-			'gate_enabled'      => ! empty( $input['gate_enabled'] ),
-			'gate_post_types'   => array_values( array_unique( array_filter( array_map( 'sanitize_key', array_map( 'strval', $types ) ) ) ) ),
-			'gate_guest_notes'  => isset( $input['gate_guest_notes'] ) ? (bool) $input['gate_guest_notes'] : $defaults['gate_guest_notes'],
-			'gate_orphans'      => isset( $input['gate_orphans'] ) ? (bool) $input['gate_orphans'] : $defaults['gate_orphans'],
-			'default_expiry'    => max( HOUR_IN_SECONDS, min( 30 * DAY_IN_SECONDS, (int) ( $input['default_expiry'] ?? $defaults['default_expiry'] ) ) ),
-			'default_max_views' => max( 0, min( 1000, (int) ( $input['default_max_views'] ?? 0 ) ) ),
-			'guest_sees_others' => ! empty( $input['guest_sees_others'] ),
+			'gate_enabled'       => ! empty( $input['gate_enabled'] ),
+			'gate_post_types'    => array_values( array_unique( array_filter( array_map( 'sanitize_key', array_map( 'strval', $types ) ) ) ) ),
+			'gate_guest_notes'   => isset( $input['gate_guest_notes'] ) ? (bool) $input['gate_guest_notes'] : $defaults['gate_guest_notes'],
+			'gate_orphans'       => isset( $input['gate_orphans'] ) ? (bool) $input['gate_orphans'] : $defaults['gate_orphans'],
+			'default_expiry'     => max( HOUR_IN_SECONDS, min( 30 * DAY_IN_SECONDS, (int) ( $input['default_expiry'] ?? $defaults['default_expiry'] ) ) ),
+			'default_max_views'  => max( 0, min( 1000, (int) ( $input['default_max_views'] ?? 0 ) ) ),
+			'guest_sees_others'  => ! empty( $input['guest_sees_others'] ),
+			'gate_min_approvals' => max( 0, min( 20, (int) ( $input['gate_min_approvals'] ?? 0 ) ) ),
+			'gate_fresh_only'    => isset( $input['gate_fresh_only'] ) ? (bool) $input['gate_fresh_only'] : $defaults['gate_fresh_only'],
 		);
 	}
 

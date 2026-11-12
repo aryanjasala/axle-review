@@ -37,7 +37,29 @@ final class NetworkPause implements Service {
 
 		if ( $hook ) {
 			add_action( 'admin_print_styles-' . $hook, array( AxleUi::class, 'enqueue' ) );
+			add_action( 'admin_print_scripts-' . $hook, array( LinksPage::class, 'enqueue_script' ) );
+			add_action( 'load-' . $hook, array( $this, 'help' ) );
 		}
+	}
+
+	/**
+	 * The Help tabs of this screen.
+	 */
+	public function help(): void {
+		AxleUi::help_tabs(
+			array(
+				array(
+					'id'      => 'overview',
+					'title'   => __( 'Overview', 'axle-review' ),
+					'content' => '<p>' . esc_html__( 'Review links let someone without an account read a draft and leave notes on it. This screen turns every review link off across the network at once.', 'axle-review' ) . '</p>',
+				),
+				array(
+					'id'      => 'pause',
+					'title'   => __( 'Pausing and resuming', 'axle-review' ),
+					'content' => '<p>' . esc_html__( 'While links are paused nobody can open one, on any site. Nothing is deleted. Resuming brings back the links that were still valid, so you can undo a pause at any time.', 'axle-review' ) . '</p>',
+				),
+			)
+		);
 	}
 
 	/**
@@ -62,13 +84,18 @@ final class NetworkPause implements Service {
 		if ( $paused ) {
 			submit_button( __( 'Resume links on every site', 'axle-review' ), 'secondary', 'submit', false );
 		} else {
+			echo '<p class="axr-confirm-after">';
 			submit_button(
 				__( 'Pause links on every site', 'axle-review' ),
 				'secondary axle-button--danger',
 				'submit',
 				false,
-				array( 'onclick' => 'return window.confirm( ' . wp_json_encode( __( 'Pause review links on every site of the network? Nobody can open one until you resume them. You can undo this with Resume links on every site.', 'axle-review' ) ) . ' );' )
+				array(
+					'data-axr-confirm'       => __( 'Pause review links on every site of the network? Nobody can open one until you resume them. You can undo this with "Resume links on every site".', 'axle-review' ),
+					'data-axr-confirm-label' => __( 'Pause links on every site', 'axle-review' ),
+				)
 			);
+			echo '</p>';
 		}
 		echo '</form></section>';
 		AxleUi::footer();

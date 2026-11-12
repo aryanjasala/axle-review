@@ -36,7 +36,7 @@ function axle_review_uninstall_site(): void {
 		}
 	}
 
-	foreach ( array( '_axr_link_id', '_axr_anchor', '_axr_pending_attach', '_axr_email_verified', '_axr_session', '_axr_orphaned' ) as $axle_review_key ) {
+	foreach ( array( '_axr_link_id', '_axr_anchor', '_axr_pending_attach', '_axr_email_verified', '_axr_session', '_axr_orphaned', '_axr_decision' ) as $axle_review_key ) {
 		delete_metadata( 'comment', 0, $axle_review_key, '', true );
 	}
 
@@ -76,6 +76,6 @@ if ( is_multisite() ) {
 }
 
 // User meta is shared across a network.
-foreach ( array( 'axle_review_notify', 'axle_review_inbox_seen', 'axle_review_digest_sent' ) as $axle_review_meta ) {
+foreach ( array( 'axle_review_notify', 'axle_review_inbox_seen', 'axle_review_digest_sent', 'axle_review_steps_dismissed' ) as $axle_review_meta ) {
 	delete_metadata( 'user', 0, $axle_review_meta, '', true );
 }

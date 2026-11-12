@@ -17,6 +17,7 @@ use AryanX\Axle\Review\Admin\SettingsSection;
 use AryanX\Axle\Review\Cli\Command;
 use AryanX\Axle\Review\Cli\LinkCommand;
 use AryanX\Axle\Review\Cli\NotesCommand;
+use AryanX\Axle\Review\Cli\ReviewCommand;
 use AryanX\Axle\Review\Frontend\ReviewView;
 use AryanX\Axle\Review\Health\SiteHealth;
 use AryanX\Axle\Review\Rest\EditorRoutes;
@@ -93,6 +94,13 @@ final class Plugin {
 	private Alerts $alerts;
 
 	/**
+	 * Approvals.
+	 *
+	 * @var Approvals
+	 */
+	private Approvals $approvals;
+
+	/**
 	 * Abilities.
 	 *
 	 * @var Abilities
@@ -135,9 +143,10 @@ final class Plugin {
 		$this->notes     = new Notes();
 		$this->attacher  = new Attacher();
 		$this->access    = new Access( $this->links, $this->events );
-		$this->gate      = new Gate( $this->settings, $this->notes );
+		$this->approvals = new Approvals( $this->links, $this->notes, $this->events );
+		$this->gate      = new Gate( $this->settings, $this->notes, $this->approvals );
 		$this->alerts    = new Alerts();
-		$this->abilities = new Abilities( $this->settings, $this->links, $this->events, $this->notes, $this->gate );
+		$this->abilities = new Abilities( $this->settings, $this->links, $this->events, $this->notes, $this->gate, $this->approvals );
 	}
 
 	/**
@@ -159,6 +168,15 @@ final class Plugin {
 	}
 
 	/**
+	 * Approvals, for other plugins.
+	 *
+	 * @return Approvals
+	 */
+	public function approvals(): Approvals {
+		return $this->approvals;
+	}
+
+	/**
 	 * The publish gate, for other plugins.
 	 *
 	 * @return Gate
@@ -175,19 +193,20 @@ final class Plugin {
 
 		$services = array(
 			$this->attacher,
+			$this->approvals,
 			$this->gate,
 			$this->alerts,
 			$this->abilities,
 			new Lifecycle( $this->links, $this->events ),
 			new Privacy( $this->links, $this->events ),
-			new ReviewView( $this->links, $this->events, $this->access ),
-			new GuestRoutes( $this->links, $this->events, $this->access, $this->notes, $this->attacher ),
-			new EditorRoutes( $this->settings, $this->links, $this->events, $this->attacher, $this->gate ),
+			new ReviewView( $this->links, $this->events, $this->access, $this->approvals, new Visits( $this->links ) ),
+			new GuestRoutes( $this->links, $this->events, $this->access, $this->notes, $this->attacher, $this->approvals ),
+			new EditorRoutes( $this->settings, $this->links, $this->events, $this->attacher, $this->gate, $this->approvals ),
 			new Inbox( $this->notes ),
-			new LinksPage( $this->settings, $this->links, $this->events ),
+			new LinksPage( $this->settings, $this->links, $this->events, $this->approvals ),
 			new SettingsSection( $this->settings ),
 			new Profile(),
-			new PostColumns( $this->notes ),
+			new PostColumns( $this->notes, $this->links ),
 			new EditorAssets(),
 			new NetworkPause(),
 			new SiteHealth( $this->settings, $this->links, $this->gate ),
@@ -199,7 +218,8 @@ final class Plugin {
 
 		if ( defined( 'WP_CLI' ) && WP_CLI ) {
 			$command = new Command( $this->gate, $this->alerts, $this->events );
-			\WP_CLI::add_command( 'axle-review link', new LinkCommand( $this->settings, $this->links, $this->events ) );
+			\WP_CLI::add_command( 'axle-review link', new LinkCommand( $this->settings, $this->links, $this->events, $this->approvals ) );
+			\WP_CLI::add_command( 'axle-review review', new ReviewCommand( $this->approvals ) );
 			\WP_CLI::add_command( 'axle-review notes', new NotesCommand( $this->notes, $this->attacher, $this->abilities ) );
 			\WP_CLI::add_command( 'axle-review gate check', array( $command, 'gate_check' ) );
 			\WP_CLI::add_command( 'axle-review digest send', array( $command, 'digest_send' ) );

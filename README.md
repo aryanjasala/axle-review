@@ -1,7 +1,9 @@
+<p align="center"><img src=".wordpress-org/icon-256x256.png" alt="" width="88"></p>
+
 <h1 align="center">Axle Review</h1>
 
 <p align="center">
-  <a href="https://playground.wordpress.net/?blueprint-url=https://raw.githubusercontent.com/aryanjasala/axle-review/main/blueprint.json"><img src="https://img.shields.io/badge/Try%20in-WordPress%20Playground-3858e9?logo=wordpress&logoColor=white" alt="Try in WordPress Playground"></a>
+  <a href="https://try.axlewp.com/axle-review"><img src="https://img.shields.io/badge/Try%20in-WordPress%20Playground-3858e9?logo=wordpress&logoColor=white" alt="Try in WordPress Playground"></a>
   <a href="https://github.com/aryanjasala/axle-review/releases/latest"><img src="https://img.shields.io/github/v/release/aryanjasala/axle-review?label=release&color=2271b1" alt="Latest release"></a>
   <img src="https://img.shields.io/badge/WordPress-6.9%2B-3858e9?logo=wordpress&logoColor=white" alt="WordPress 6.9+">
   <img src="https://img.shields.io/badge/PHP-7.4%2B-777bb4?logo=php&logoColor=white" alt="PHP 7.4+">
@@ -14,20 +16,20 @@
   <a href="https://github.com/aryanjasala/axle-review/actions/workflows/plugin-check.yml"><img src="https://github.com/aryanjasala/axle-review/actions/workflows/plugin-check.yml/badge.svg" alt="Plugin Check"></a>
 </p>
 
-<p align="center">Share drafts through private links. Reviewers without an account leave feedback that lands as block Notes, right on the block they meant.</p>
+<p align="center">Share drafts through private links. Reviewers without an account leave notes on blocks, approve the draft, and see what changed when they come back.</p>
 
 <p align="center">
-  <img src=".wordpress-org/screenshot-2.png" alt="A reviewer leaving a note on a block of the draft" width="880">
+  <img src=".github/media/demo.gif" alt="A reviewer opens a private link, leaves a note on a paragraph, and the editor sees it on that block; then the note is resolved from Dashboard > Notes" width="880">
 </p>
 
 ---
 
-WordPress 6.9 added Notes: comments on blocks that editors reply to and resolve. But only people with an account can see a draft, and only people who can edit it can leave a note. Clients, legal teams and outside experts usually have neither. Draft link plugins let them read the draft, and feedback plugins keep comments in a second system your editors have to check as well. Axle Review closes the gap: a reviewer opens a private link, clicks a block and writes a note, and it becomes a normal core Note on that block. A site-wide Notes inbox, a resolve-before-publish gate and note alerts come with it.
+WordPress 6.9 added Notes: comments on blocks that editors reply to and resolve. But only people with an account can see a draft, and only people who can edit it can leave a note. Clients, legal teams and outside experts usually have neither. Draft link plugins let them read the draft, and feedback plugins keep comments in a second system your editors have to check as well. Axle Review closes the gap: a reviewer opens a private link, clicks a block and writes a note, and it becomes a normal core Note on that block. They can also approve the draft or ask for changes, and if anyone edits the draft after an approval, the approval says so. A reviewer who comes back sees only the blocks that changed since their last visit. A site-wide Notes inbox, a publish gate and note alerts come with it.
 
 > [!NOTE]
 > Free and open source under the GPL. No pro version, no upsells, no ads in wp-admin, no tracking. And it stays that way.
 >
-> Part of Axle by AryanX, a family of plugins for running WordPress sites safely.
+> Part of [Axle](https://axlewp.com/) by AryanX, a family of free plugins for running WordPress sites safely.
 
 ## Features
 
@@ -37,10 +39,13 @@ WordPress 6.9 added Notes: comments on blocks that editors reply to and resolve.
 - **Notes on blocks for people without an account**: the reviewer clicks a block (or tabs to it), writes a note, and it is saved as a core Note on that block. Selected text travels as a quote. Works on phones
 - **Safe with an editor open**: the note shows up on its block in the open editor within seconds, and saving the older copy does not drop it
 - **Reviewers see their own threads** and your replies on their next visit, never your editors' notes, and other reviewers' only if you allow it per link
+- **Sign-off that notices later edits**: a reviewer approves or asks for changes, with their name and an optional comment. Each approval records a fingerprint of the blocks, title, excerpt and featured image it covered. Edit the post afterwards and the approval says "Edited since approval" and lists the blocks that changed. Ask the reviewer again with one click: they get a new link and see only what changed
+- **What changed since I last looked**: a reviewer who returns sees a bar such as "5 blocks changed since your visit on Monday", with next and previous buttons, changed blocks outlined, new blocks marked, removed blocks listed, and the earlier text of a block one click away. The earlier text comes from core revisions; with revisions off the changed blocks are still marked
+- **Review state where you work**: "2 of 3 approved" or "Changes requested by Priya" in the editor panel and on the posts list, with each decision, name and relative time. Decisions are mirrored as Notes on the post, so they show in Dashboard > Notes
 - **Dashboard > Notes**: every note on the site. Unresolved, Mentions me (7.1+), On my posts, From reviewers, Resolved, All. Reply, resolve and reopen from the list, bulk resolve, and a Notes column on the posts list
-- **Publish gate** (off by default): a post with open notes cannot be published or scheduled. Editors can publish anyway with a reason, which goes on each open note
+- **Publish gate** (off by default): a post with open notes cannot be published or scheduled. Optionally it also needs a number of approvals, and ignores approvals given to an older version. Editors can publish anyway with a reason, which is logged on the post
 - **Alerts**: instant email, an hourly or daily digest, or nothing, per user, for reviewer notes and replies to your notes. Optional Slack webhook
-- **Abilities** so an AI agent can read notes, leave notes on blocks and check publish readiness; **WP-CLI** for everything; **privacy** export and erase; a **Site Health** check that spots page caches serving review pages
+- **Abilities** so an AI agent can read notes, leave notes on blocks, check publish readiness and read the review state (agents can never approve for a reviewer); **WP-CLI** for everything; **privacy** export and erase; a **Site Health** check that spots page caches serving review pages
 
 ## Install
 
@@ -53,7 +58,7 @@ Or with WP-CLI:
 wp plugin install https://github.com/aryanjasala/axle-review/releases/latest/download/axle-review.zip --activate
 ```
 
-Needs WordPress 6.9+ and PHP 7.4+. To try it first, the **Try in WordPress Playground** badge opens a throwaway WordPress in your browser with the plugin and some demo content.
+Needs WordPress 6.9+ and PHP 7.4+. To try it first, [try.axlewp.com/axle-review](https://try.axlewp.com/axle-review) opens a private WordPress in your browser with the latest release and some demo content. Nothing to install.
 
 ## Quick look
 
@@ -69,20 +74,23 @@ They open the link, get a code by email, click the paragraph they mean and write
 wp axle-review notes list --guests
 wp axle-review notes resolve 128 --user=maria
 wp axle-review gate check 42   # exits 1 while open notes would hold publishing back
+wp axle-review review status 42   # who approved, who asked for changes, what was edited since
+wp axle-review link ask-again 7   # a new link for a reviewer whose approval is out of date
 ```
 
 ## Screenshots
 
 <table>
   <tr>
-    <td width="50%" valign="top"><img src=".wordpress-org/screenshot-1.png" alt="The "Share for review" panel in the editor: links with their views and notes, and a new link"><br><sub>The "Share for review" panel in the editor: links with their views and notes, and a new link</sub></td>
+    <td width="50%" valign="top"><img src=".wordpress-org/screenshot-1.png" alt="The "Share for review" panel in the editor: the review state, links with their views and notes, and a new link"><br><sub>The "Share for review" panel in the editor: the review state, links with their views and notes, and a new link</sub></td>
+    <td width="50%" valign="top"><img src=".wordpress-org/screenshot-2.png" alt="A reviewer leaving a note on a block of the draft"><br><sub>A reviewer leaving a note on a block of the draft</sub></td>
+  </tr>
+  <tr>
     <td width="50%" valign="top"><img src=".wordpress-org/screenshot-3.png" alt="Dashboard > Notes: every open note, with reply, resolve and reopen"><br><sub>Dashboard > Notes: every open note, with reply, resolve and reopen</sub></td>
-  </tr>
-  <tr>
     <td width="50%" valign="top"><img src=".wordpress-org/screenshot-4.png" alt="The editor before publishing, with the gate holding back a post that has open notes"><br><sub>The editor before publishing, with the gate holding back a post that has open notes</sub></td>
-    <td width="50%" valign="top"><img src=".wordpress-org/screenshot-5.png" alt="Tools > Review Links: every link on the site, with the pause button"><br><sub>Tools > Review Links: every link on the site, with the pause button</sub></td>
   </tr>
   <tr>
+    <td width="50%" valign="top"><img src=".wordpress-org/screenshot-5.png" alt="Tools > Review Links: every link on the site, with the pause button"><br><sub>Tools > Review Links: every link on the site, with the pause button</sub></td>
     <td width="50%" valign="top"><img src=".wordpress-org/screenshot-6.png" alt="Settings > Writing > Review: the publish gate, link defaults and Slack"><br><sub>Settings > Writing > Review: the publish gate, link defaults and Slack</sub></td>
   </tr>
 </table>
@@ -91,7 +99,7 @@ wp axle-review gate check 42   # exits 1 while open notes would hold publishing 
 
 | Doc | What it covers |
 | --- | --- |
-| [Reference](docs/REFERENCE.md) | Links, the review page, how reviewer notes become core Notes, the inbox, the gate, alerts, hooks, abilities, REST, WP-CLI, data and privacy |
+| [Reference](docs/REFERENCE.md) | Links, the review page, sign-off and what changed since a visit, how reviewer notes become core Notes, the inbox, the gate, alerts, hooks, abilities, REST, WP-CLI, data and privacy |
 | [Development](docs/DEVELOPMENT.md) | Local setup, commands and tests |
 | [Contributing](docs/CONTRIBUTING.md) | Pull requests, required checks and PR titles |
 | [Releasing](docs/RELEASING.md) | How merged pull requests become releases |
@@ -112,6 +120,9 @@ src/
 ├── Events.php            link activity
 ├── Access.php            sessions, email codes, passwords, lockouts
 ├── Anchor.php            block paths, fingerprints and noteId
+├── Fingerprint.php       what a reviewer saw, and what changed since
+├── Approvals.php         approve, request changes, outdated approvals
+├── Visits.php            what changed since a reviewer's last visit
 ├── Notes.php             core Notes: guest notes, resolve, queries
 ├── Attacher.php          puts reviewer notes on their block
 ├── Gate.php              the publish gate
@@ -134,18 +145,24 @@ docs/                     reference, development, contributing, releasing
 
 ## More free plugins
 
-Small plugins that each fill one gap in WordPress, all free with no pro version:
+Small plugins that each fill one gap in WordPress, all free with no pro version. Try them all together at [demo.axlewp.com](https://demo.axlewp.com/).
 
 | | Plugin | What it does |
 | --- | --- | --- |
-| <img src="https://raw.githubusercontent.com/aryanjasala/page-template-usage/main/.wordpress-org/icon-128x128.png" alt="" width="32"> | [Page Template Usage](https://github.com/aryanjasala/page-template-usage) | See which template every page uses, and fix the pages on a missing template |
-| <img src="https://raw.githubusercontent.com/aryanjasala/staging-guard/main/.wordpress-org/icon-128x128.png" alt="" width="32"> | [Staging Guard](https://github.com/aryanjasala/staging-guard) | Stops staging copies from emailing real people or getting indexed |
-| <img src="https://raw.githubusercontent.com/aryanjasala/category-tag-trash/main/.wordpress-org/icon-128x128.png" alt="" width="32"> | [Category & Tag Trash](https://github.com/aryanjasala/category-tag-trash) | A trash for categories, tags and custom terms, with undo and full restore |
+| <img src="https://raw.githubusercontent.com/aryanjasala/axle-page-template-usage/main/.wordpress-org/icon-128x128.png" alt="" width="32"> | [Axle Page Template Usage](https://github.com/aryanjasala/axle-page-template-usage) | See which template every page uses, and fix the pages on a missing template |
+| <img src="https://raw.githubusercontent.com/aryanjasala/axle-staging-guard/main/.wordpress-org/icon-128x128.png" alt="" width="32"> | [Axle Staging Guard](https://github.com/aryanjasala/axle-staging-guard) | Stops staging copies from emailing real people, calling live APIs or getting indexed |
+| <img src="https://raw.githubusercontent.com/aryanjasala/axle-category-tag-trash/main/.wordpress-org/icon-128x128.png" alt="" width="32"> | [Axle Category & Tag Trash](https://github.com/aryanjasala/axle-category-tag-trash) | A trash for categories, tags and custom terms, with undo and full restore |
 | <img src="https://raw.githubusercontent.com/aryanjasala/axle-read-only-mode/main/.wordpress-org/icon-128x128.png" alt="" width="32"> | [Axle Read-Only Mode](https://github.com/aryanjasala/axle-read-only-mode) | Read-only mode for WordPress during migrations and deploys |
 | <img src="https://raw.githubusercontent.com/aryanjasala/axle-block-restore/main/.wordpress-org/icon-128x128.png" alt="" width="32"> | [Axle Block Restore](https://github.com/aryanjasala/axle-block-restore) | Restore a single block from an old revision, not the whole post |
 | <img src="https://raw.githubusercontent.com/aryanjasala/activity-log-with-undo/main/.wordpress-org/icon-128x128.png" alt="" width="32"> | [Activity Log with Undo](https://github.com/aryanjasala/activity-log-with-undo) | An activity log where every change you can reverse has an Undo button |
 | <img src="https://raw.githubusercontent.com/aryanjasala/agent-governance/main/.wordpress-org/icon-128x128.png" alt="" width="32"> | [Agent Governance](https://github.com/aryanjasala/agent-governance) | Hold risky AI agent calls for approval, preview what they change, and roll back a session |
-| <img src="https://raw.githubusercontent.com/aryanjasala/block-doctor/main/.wordpress-org/icon-128x128.png" alt="" width="32"> | [Block Doctor](https://github.com/aryanjasala/block-doctor) | Scan the whole site for invalid and broken blocks and fix them in bulk, with undo |
+| <img src="https://raw.githubusercontent.com/aryanjasala/axle-ai-guard/main/.wordpress-org/icon-128x128.png" alt="" width="32"> | [Axle AI Guard](https://github.com/aryanjasala/axle-ai-guard) | See and control every AI call your plugins make: cost, data sent, budgets and a kill switch |
+| <img src="https://raw.githubusercontent.com/aryanjasala/axle-config-sync/main/.wordpress-org/icon-128x128.png" alt="" width="32"> | [Axle Config Sync](https://github.com/aryanjasala/axle-config-sync) | Keep settings in git, diff them against the live site, apply with a preview and undo |
+| <img src="https://raw.githubusercontent.com/aryanjasala/axle-leftovers/main/.wordpress-org/icon-128x128.png" alt="" width="32"> | [Axle Leftovers](https://github.com/aryanjasala/axle-leftovers) | Find what deleted plugins left behind, see who owns it and why, and clean it up with undo |
+| <img src="https://raw.githubusercontent.com/aryanjasala/axle-license-tracker/main/.wordpress-org/icon-128x128.png" alt="" width="32"> | [Axle License Tracker](https://github.com/aryanjasala/axle-license-tracker) | See which premium plugins are licensed, which lapsed and stopped getting updates, and what renews when |
+| <img src="https://raw.githubusercontent.com/aryanjasala/axle-runtime-doctor/main/.wordpress-org/icon-128x128.png" alt="" width="32"> | [Axle Runtime Doctor](https://github.com/aryanjasala/axle-runtime-doctor) | Check OPcache coverage, the object cache, PHP support and limits, cron and more, with the fix for your host |
+| <img src="https://raw.githubusercontent.com/aryanjasala/axle-smoke-test/main/.wordpress-org/icon-128x128.png" alt="" width="32"> | [Axle Smoke Test](https://github.com/aryanjasala/axle-smoke-test) | Check key pages after every update or deploy, see what broke and roll it back |
+| <img src="https://raw.githubusercontent.com/aryanjasala/block-doctor/main/.wordpress-org/icon-128x128.png" alt="" width="32"> | [Block Doctor](https://github.com/aryanjasala/block-doctor) | Scan the site for broken blocks and fix them in bulk, with undo. See which posts use each block before you switch a plugin off |
 | <img src="https://raw.githubusercontent.com/aryanjasala/block-theme-ops/main/.wordpress-org/icon-128x128.png" alt="" width="32"> | [Block Theme Ops](https://github.com/aryanjasala/block-theme-ops) | Find Site Editor changes that override your theme files, see the diff, reset them or send them to Git |
 | <img src="https://raw.githubusercontent.com/aryanjasala/role-right-sizer/main/.wordpress-org/icon-128x128.png" alt="" width="32"> | [Role Right-Sizer](https://github.com/aryanjasala/role-right-sizer) | Recommends the smallest role each user needs, from what they actually do |
 | <img src="https://raw.githubusercontent.com/aryanjasala/update-rehearsal/main/.wordpress-org/icon-128x128.png" alt="" width="32"> | [Update Rehearsal](https://github.com/aryanjasala/update-rehearsal) | Try plugin, theme, core and PHP updates on a disposable copy of your site in WordPress Playground first |

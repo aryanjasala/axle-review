@@ -15,8 +15,8 @@ defined( 'ABSPATH' ) || exit;
  *
  * The eraser replaces a reviewer's name and email on their notes with
  * "Reviewer" and keeps the text (the filter can delete the notes instead),
- * revokes links locked to that email and forgets the email, and deletes the
- * activity of those links.
+ * revokes links locked to that email, forgets the email, the name and the
+ * comment of their decision, and deletes the activity of those links.
  */
 final class Privacy implements Service {
 
@@ -180,6 +180,22 @@ final class Privacy implements Service {
 					'value' => (string) $link['created_at'],
 				),
 			);
+			if ( '' !== $link['reviewer_name'] ) {
+				$fields[] = array(
+					'name'  => __( 'Name', 'axle-review' ),
+					'value' => (string) $link['reviewer_name'],
+				);
+			}
+			if ( '' !== $link['decision'] ) {
+				$fields[] = array(
+					'name'  => __( 'Decision', 'axle-review' ),
+					'value' => Approvals::label( (string) $link['decision'] ),
+				);
+				$fields[] = array(
+					'name'  => __( 'Comment', 'axle-review' ),
+					'value' => (string) $link['decision_comment'],
+				);
+			}
 			foreach ( $this->events->for_link( (int) $link['id'], 1000 ) as $event ) {
 				$fields[] = array(
 					'name'  => $event['type'],
@@ -268,7 +284,7 @@ final class Privacy implements Service {
 			return;
 		}
 
-		$text = '<p>' . esc_html__( 'When we share a draft with you for review, we keep the name you give and, if the link is locked to your email address, that address, so we can send you a one-time code. Notes you leave are stored with the post as editorial notes, with your name and email address.', 'axle-review' ) . '</p>' .
+		$text = '<p>' . esc_html__( 'When we share a draft with you for review, we keep the name you give and, if the link is locked to your email address, that address, so we can send you a one-time code. Notes you leave, and your answer if you approve the draft or ask for changes, are stored with the post as editorial notes, with your name, your comment and your email address.', 'axle-review' ) . '</p>' .
 			'<p>' . esc_html__( 'For each review link we record when it was opened, an anonymised IP address and your browser family (for example Firefox), for 90 days. You can ask us to export or erase this data.', 'axle-review' ) . '</p>';
 
 		wp_add_privacy_policy_content( __( 'Axle Review', 'axle-review' ), wp_kses_post( $text ) );
