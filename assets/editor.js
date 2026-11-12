@@ -333,9 +333,9 @@
 			}
 		};
 		return el(
-			Notice,
-			{ status: 'success', isDismissible: false, className: 'axr-new-url' },
-			el( 'p', null, el( 'strong', null, again ? __( 'The reviewer has a new link. Copy it now: it is not shown again, and the old link no longer works.', 'axle-review' ) : __( 'Link created. Copy it now: it is not shown again.', 'axle-review' ) ) ),
+			'div',
+			{ className: 'axr-new-url' },
+			el( Notice, { status: 'success', isDismissible: false }, again ? __( 'The reviewer has a new link. Copy it now: it is not shown again, and the old link no longer works.', 'axle-review' ) : __( 'Link created. Copy it now: it is not shown again.', 'axle-review' ) ),
 			el( TextControl, { label: __( 'Review link', 'axle-review' ), value: result.url, readOnly: true, onChange: () => {}, onFocus: ( event ) => event.target.select(), __nextHasNoMarginBottom: true, __next40pxDefaultSize: true } ),
 			el( Button, { variant: 'secondary', onClick: copy }, copied ? __( 'Copied', 'axle-review' ) : __( 'Copy link', 'axle-review' ) ),
 			result.emailed && el( 'p', null, __( 'The link was emailed.', 'axle-review' ) )
