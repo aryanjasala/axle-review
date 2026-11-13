@@ -3,7 +3,7 @@
  * Plugin Name:       Axle Review
  * Plugin URI:        https://github.com/aryanjasala/axle-review
  * Description:       Share drafts with people outside the site through private links, and collect their feedback as block Notes. Adds a site-wide Notes inbox, a resolve-before-publish gate and note alerts.
- * Version:           1.0.0
+ * Version:           1.1.0
  * Requires at least: 6.9
  * Requires PHP:      7.4
  * Author:            Aryan Jasala
@@ -19,7 +19,7 @@ namespace AryanX\Axle\Review;
 
 defined( 'ABSPATH' ) || exit;
 
-const VERSION     = '1.0.0';
+const VERSION     = '1.1.0';
 const PLUGIN_FILE = __FILE__;
 
 // PSR-4: AryanX\Axle\Review\Foo\Bar lives in src/Foo/Bar.php.
