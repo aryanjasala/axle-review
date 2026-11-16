@@ -1,325 +1,52 @@
-/* Axle Review: reviewer toolbar, note popover and notes panel. Everything is axr- prefixed; theme styles are left alone. */
-.axr-toolbar,
-.axr-popover,
-.axr-panel,
-.axr-changes,
-.axr-before {
-	--axr-ink: #1d2327;
-	--axr-muted: #50575e;
-	--axr-line: #c3c4c7;
-	--axr-paper: #fff;
-	--axr-accent: #0f6b5c;
-	--axr-accent-ink: #fff;
-	box-sizing: border-box;
-	color: var(--axr-ink);
-	font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen-Sans, Ubuntu, Cantarell, "Helvetica Neue", sans-serif;
-	letter-spacing: normal;
-	text-transform: none;
+/*
+ * Axle Review: what a reviewer sees on a review page.
+ *
+ * Two parts. "The page" marks blocks inside the theme's own content and makes
+ * room for the bar. "The review interface" is everything inside #axr-root: the
+ * bar, the note form, the notes sidebar and the approve dialog. It is drawn
+ * like WordPress's own Notes in the editor (the same greys, blue, corner radii
+ * and sizes), and it starts from the browser's defaults, so theme styles for
+ * buttons, inputs and headings do not leak into it.
+ */
+
+/* ---------------------------------------------------------------- The page */
+
+html.axr-reviewing {
+	margin-top: calc(var(--axr-admin-height, 0px) + var(--axr-top, 32px)) !important;
+	scroll-padding-top: calc(var(--axr-admin, 0px) + var(--axr-top, 32px) + 16px);
 }
 
-.axr-toolbar *,
-.axr-popover *,
-.axr-panel *,
-.axr-changes *,
-.axr-before * {
-	box-sizing: border-box;
-	font: inherit;
-	letter-spacing: normal;
+/* The notes sidebar sits beside the page on wide screens, not over it. */
+@media (min-width: 960px) {
+	html.axr-panel-open {
+		margin-inline-end: 320px !important;
+		overflow-x: clip;
+	}
 }
 
-.axr-toolbar {
-	position: fixed;
-	z-index: 999999;
-	left: 50%;
-	bottom: 16px;
-	transform: translateX(-50%);
-	display: flex;
-	flex-wrap: wrap;
-	align-items: center;
-	gap: 8px 12px;
-	max-width: calc(100vw - 24px);
-	padding: 8px 12px;
-	background: var(--axr-paper);
-	border: 1px solid var(--axr-line);
-	border-radius: 8px;
-	box-shadow: 0 4px 16px rgba(0, 0, 0, .18);
-}
-
-.axr-toolbar__title {
-	font-weight: 600;
-}
-
-.axr-toolbar__who,
-.axr-toolbar__status {
-	margin: 0;
-	color: var(--axr-muted);
-}
-
-.axr-toolbar__status:empty,
-.axr-toolbar__who:empty {
-	display: none;
-}
-
-.axr-button {
-	display: inline-block;
-	min-height: 32px;
-	margin: 0;
-	padding: 4px 12px;
-	color: var(--axr-accent);
-	background: var(--axr-paper);
-	border: 1px solid var(--axr-accent);
-	border-radius: 4px;
+body.axr-noting .axr-block {
 	cursor: pointer;
-	line-height: 1.6;
-	text-decoration: none;
 }
 
-.axr-button--primary,
-.axr-button[aria-pressed="true"] {
-	color: var(--axr-accent-ink);
-	background: var(--axr-accent);
-}
-
-.axr-button:focus-visible,
-.axr-popover input:focus-visible,
-.axr-popover textarea:focus-visible,
-.axr-panel textarea:focus-visible {
-	outline: 2px solid var(--axr-accent);
-	outline-offset: 2px;
-}
-
-.axr-button[disabled] {
-	opacity: .6;
-	cursor: default;
-}
-
-/* Note mode */
-.axr-noting .axr-block {
-	cursor: crosshair;
-}
-
-.axr-noting .axr-block:hover,
-.axr-noting .axr-block:focus,
-.axr-block--active {
-	outline: 2px dashed #0f6b5c;
+body.axr-noting .axr-block:hover,
+body.axr-noting .axr-block:focus,
+.axr-block--active.axr-block--active {
+	outline: 2px solid #3858e9;
 	outline-offset: 4px;
+	border-radius: 2px;
 }
 
 .axr-has-note {
-	box-shadow: inset 3px 0 0 #0f6b5c;
+	background-color: rgba(56, 88, 233, 0.08);
+	box-shadow: 0 0 0 4px rgba(56, 88, 233, 0.08);
+	border-radius: 2px;
 }
 
-/* Popover */
-.axr-popover {
-	position: absolute;
-	z-index: 1000000;
-	width: min(360px, calc(100vw - 24px));
-	padding: 12px 16px;
-	background: var(--axr-paper);
-	border: 1px solid var(--axr-line);
-	border-radius: 8px;
-	box-shadow: 0 8px 24px rgba(0, 0, 0, .2);
-}
-
-.axr-popover__title,
-.axr-panel h2 {
-	margin: 0 0 8px;
-	font-size: 16px;
-	font-weight: 600;
-	line-height: 1.4;
-}
-
-.axr-popover p {
-	margin: 0 0 10px;
-}
-
-.axr-popover label,
-.axr-panel label {
-	display: block;
-	margin-bottom: 2px;
-	font-weight: 600;
-}
-
-.axr-popover input,
-.axr-popover textarea,
-.axr-panel textarea {
-	display: block;
-	width: 100%;
-	padding: 6px 8px;
-	color: var(--axr-ink);
-	background: var(--axr-paper);
-	border: 1px solid #8c8f94;
-	border-radius: 4px;
-}
-
-.axr-popover__quote {
-	padding-left: 8px;
-	color: var(--axr-muted);
-	border-left: 3px solid var(--axr-line);
-}
-
-.axr-popover__error {
-	color: #b32d2e;
-}
-
-.axr-popover__error:empty {
-	display: none;
-}
-
-.axr-popover__actions {
-	display: flex;
-	gap: 8px;
-}
-
-.axr-trap {
-	position: absolute !important;
-	left: -10000px;
-	width: 1px;
-	height: 1px;
-	overflow: hidden;
-}
-
-/* Notes panel */
-.axr-panel {
-	position: fixed;
-	z-index: 1000000;
-	top: 16px;
-	right: 16px;
-	bottom: 80px;
-	width: min(380px, calc(100vw - 32px));
-	overflow-y: auto;
-	padding: 12px 16px;
-	background: var(--axr-paper);
-	border: 1px solid var(--axr-line);
-	border-radius: 8px;
-	box-shadow: 0 8px 24px rgba(0, 0, 0, .2);
-}
-
-.axr-panel__head {
-	display: flex;
-	align-items: center;
-	justify-content: space-between;
-	gap: 8px;
-}
-
-.axr-panel__threads,
-.axr-thread__replies {
-	margin: 0;
-	padding: 0;
-	list-style: none;
-}
-
-.axr-thread {
-	margin: 0 0 12px;
-	padding: 0 0 12px;
-	border-bottom: 1px solid var(--axr-line);
-}
-
-.axr-thread p {
-	margin: 0 0 6px;
-}
-
-.axr-thread__meta {
-	display: flex;
-	justify-content: space-between;
-	gap: 8px;
-}
-
-.axr-thread__status {
-	color: var(--axr-muted);
-}
-
-.axr-thread__status--resolved {
-	color: #00702a;
-}
-
-.axr-thread__replies li {
-	margin: 0 0 6px;
-	padding-left: 8px;
-	border-left: 3px solid var(--axr-line);
-}
-
-@media (max-width: 600px) {
-	.axr-toolbar {
-		left: 8px;
-		right: 8px;
-		bottom: 8px;
-		transform: none;
-	}
-
-	.axr-popover {
-		position: fixed;
-		top: auto !important;
-		left: 8px !important;
-		right: 8px;
-		bottom: 72px;
-		width: auto;
-	}
-}
-
-/* Your answer */
-.axr-toolbar__decision {
-	margin: 0;
-	color: var(--axr-ink);
-}
-
-.axr-toolbar__decision:empty {
-	display: none;
-}
-
-.axr-popover--fixed {
-	position: fixed;
-	top: auto;
-	bottom: 72px;
-	left: 50%;
-	transform: translateX(-50%);
-}
-
-.axr-popover__who {
-	margin: 0 0 8px;
-	color: var(--axr-muted);
-}
-
-/* What changed since your last visit */
-.axr-changes {
-	position: fixed;
-	z-index: 999998;
-	top: 8px;
-	left: 50%;
-	transform: translateX(-50%);
-	display: flex;
-	flex-wrap: wrap;
-	align-items: center;
-	gap: 8px 12px;
-	width: min(720px, calc(100vw - 24px));
-	padding: 8px 12px;
-	background: var(--axr-paper);
-	border: 1px solid var(--axr-line);
-	border-left: 4px solid var(--axr-accent);
-	border-radius: 8px;
-	box-shadow: 0 4px 16px rgba(0, 0, 0, .18);
-}
-
-.axr-changes__text {
-	margin: 0;
-	font-weight: 600;
-}
-
-.axr-changes__meta,
-.axr-changes__details {
-	flex-basis: 100%;
-	margin: 0;
-	color: var(--axr-muted);
-}
-
-.axr-changes__removed {
-	margin: 4px 0 0;
-	padding-left: 20px;
-}
-
+/* Blocks that changed since the reviewer's last visit. */
 .axr-changed {
-	outline: 2px solid var(--axr-accent, #0f6b5c);
+	outline: 2px solid #3858e9;
 	outline-offset: 4px;
+	border-radius: 2px;
 }
 
 .axr-changed--new {
@@ -329,38 +56,119 @@
 .axr-changed::before {
 	content: attr(data-axr-mark);
 	position: absolute;
-	top: -14px;
-	left: 0;
+	top: -15px;
+	inset-inline-start: -6px;
 	z-index: 1;
 	padding: 0 6px;
 	color: #fff;
-	background: #0f6b5c;
-	border-radius: 3px;
-	font: 600 12px/18px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+	background: #3858e9;
+	border-radius: 2px;
+	font: 500 11px/18px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen-Sans, Ubuntu, Cantarell, "Helvetica Neue", sans-serif;
+	letter-spacing: normal;
+	text-transform: uppercase;
+}
+
+/* "Show previous text", placed in the content after a changed block. */
+.axr-before.axr-before {
+	margin: 12px 0;
+	color: #1e1e1e;
+	font: 400 13px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen-Sans, Ubuntu, Cantarell, "Helvetica Neue", sans-serif;
 	letter-spacing: normal;
 	text-transform: none;
 }
 
-.axr-before {
-	margin: 8px 0;
-	font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+.axr-before .axr-before__toggle.axr-button {
+	all: unset;
+	box-sizing: border-box;
+	display: inline-flex;
+	align-items: center;
+	height: 32px;
+	padding: 0 12px;
+	color: #3858e9;
+	background: #fff;
+	border-radius: 2px;
+	box-shadow: inset 0 0 0 1px #3858e9;
+	font: 500 13px/1 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen-Sans, Ubuntu, Cantarell, "Helvetica Neue", sans-serif;
+	cursor: pointer;
 }
 
-.axr-before__text {
+.axr-before .axr-before__toggle.axr-button:hover {
+	color: #2145e6;
+	box-shadow: inset 0 0 0 1px #2145e6;
+}
+
+.axr-before .axr-before__toggle.axr-button:focus-visible {
+	outline: 2px solid #3858e9;
+	outline-offset: 2px;
+}
+
+.axr-before .axr-before__text {
 	display: block;
 	margin-top: 8px;
 	padding: 8px 12px;
-	color: var(--axr-muted);
-	background: #f6f7f7;
-	border-left: 3px solid var(--axr-line);
+	color: #595959;
+	background: #f0f0f0;
+	border-inline-start: 4px solid #ddd;
+	border-radius: 2px;
 	text-decoration: line-through;
 }
 
-.axr-before__text[hidden] {
+.axr-before .axr-before__text[hidden] {
 	display: none;
 }
 
-.axr-sr {
+@media print {
+	html.axr-reviewing {
+		margin: 0 !important;
+	}
+
+	#axr-root,
+	.axr-before {
+		display: none !important;
+	}
+}
+
+/* ---------------------------------------------------- The review interface */
+
+/* Not the icon shapes: their outline is itself a style, and reverting it would empty them. */
+#axr-root,
+#axr-root *:not(path),
+#axr-root *::before,
+#axr-root *::after {
+	all: revert;
+	box-sizing: border-box;
+}
+
+#axr-root {
+	--axr-ink: #1e1e1e;
+	--axr-muted: #595959;
+	--axr-line: #ddd;
+	--axr-field: #949494;
+	--axr-paper: #fff;
+	--axr-card: #f0f0f0;
+	--axr-accent: #3858e9;
+	--axr-accent-dark: #2145e6;
+	--axr-bar: #1d2327;
+	--axr-bar-ink: #f0f0f1;
+	--axr-shadow: 0 2px 3px rgba(0, 0, 0, 0.05), 0 4px 5px rgba(0, 0, 0, 0.04), 0 12px 12px rgba(0, 0, 0, 0.03), 0 16px 16px rgba(0, 0, 0, 0.02);
+	color: var(--axr-ink);
+	color-scheme: light;
+	font: 400 13px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen-Sans, Ubuntu, Cantarell, "Helvetica Neue", sans-serif;
+	letter-spacing: normal;
+	text-align: start;
+	text-transform: none;
+	-webkit-text-size-adjust: 100%;
+}
+
+#axr-root .axr-icon {
+	display: block;
+	flex: none;
+	width: 24px;
+	height: 24px;
+	fill: currentColor;
+}
+
+#axr-root .axr-sr {
 	position: absolute;
 	width: 1px;
 	height: 1px;
@@ -369,4 +177,705 @@
 	overflow: hidden;
 	clip-path: inset(50%);
 	white-space: nowrap;
+	border: 0;
+}
+
+/* Buttons: the outlined one is the default, as in WordPress. */
+#axr-root .axr-button {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: 4px;
+	height: 40px;
+	margin: 0;
+	padding: 0 16px;
+	color: var(--axr-accent);
+	background: transparent;
+	border: 1px solid transparent;
+	border-radius: 2px;
+	box-shadow: inset 0 0 0 1px var(--axr-accent);
+	font: inherit;
+	font-weight: 500;
+	line-height: 1;
+	text-decoration: none;
+	white-space: nowrap;
+	cursor: pointer;
+	-webkit-appearance: none;
+	appearance: none;
+}
+
+#axr-root .axr-button:hover {
+	color: var(--axr-accent-dark);
+	box-shadow: inset 0 0 0 1px var(--axr-accent-dark);
+}
+
+#axr-root .axr-button--primary {
+	color: #fff;
+	background: var(--axr-accent);
+	box-shadow: none;
+}
+
+#axr-root .axr-button--primary:hover {
+	color: #fff;
+	background: var(--axr-accent-dark);
+	box-shadow: none;
+}
+
+#axr-root .axr-button--tertiary,
+#axr-root .axr-button--tertiary:hover {
+	box-shadow: none;
+}
+
+#axr-root .axr-button--tertiary:hover {
+	background: rgba(56, 88, 233, 0.08);
+}
+
+#axr-root .axr-button--compact {
+	height: 32px;
+	padding: 0 12px;
+}
+
+#axr-root .axr-button--icon {
+	width: 32px;
+	height: 32px;
+	padding: 0;
+	color: var(--axr-ink);
+}
+
+#axr-root .axr-button--icon:hover {
+	color: var(--axr-accent);
+	background: transparent;
+}
+
+#axr-root .axr-button:focus-visible {
+	outline: 2px solid var(--axr-accent);
+	outline-offset: 2px;
+}
+
+#axr-root .axr-button[disabled] {
+	opacity: 0.6;
+	cursor: default;
+}
+
+/* The bar: the height and colours of the WordPress admin bar. */
+#axr-root .axr-top {
+	position: fixed;
+	top: var(--axr-admin, 0px);
+	left: 0;
+	right: 0;
+	z-index: 99990;
+}
+
+#axr-root .axr-toolbar__bar {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 4px;
+	min-height: 32px;
+	padding: 0 12px;
+	color: var(--axr-bar-ink);
+	background: var(--axr-bar);
+}
+
+#axr-root .axr-toolbar__title {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	margin-inline-end: 8px;
+	color: #fff;
+	font-weight: 600;
+}
+
+#axr-root .axr-toolbar__title .axr-icon {
+	width: 20px;
+	height: 20px;
+	color: #a7aaad;
+}
+
+#axr-root .axr-toolbar__who {
+	min-width: 0;
+	overflow: hidden;
+	color: #c3c4c7;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+#axr-root .axr-toolbar__space {
+	flex: 1;
+}
+
+#axr-root .axr-toolbar__bar .axr-button {
+	height: 24px;
+	padding: 0 8px;
+	color: var(--axr-bar-ink);
+	box-shadow: none;
+	font-size: 12px;
+}
+
+#axr-root .axr-toolbar__bar .axr-button .axr-icon {
+	width: 20px;
+	height: 20px;
+	margin-inline-start: -4px;
+}
+
+#axr-root .axr-toolbar__bar .axr-button--tool:hover {
+	color: #72aee6;
+	background: #2c3338;
+}
+
+#axr-root .axr-toolbar__bar .axr-button--outline {
+	box-shadow: inset 0 0 0 1px #8c8f94;
+}
+
+#axr-root .axr-toolbar__bar .axr-button--outline:hover {
+	box-shadow: inset 0 0 0 1px var(--axr-bar-ink);
+}
+
+#axr-root .axr-toolbar__bar .axr-button--primary {
+	color: #fff;
+	background: var(--axr-accent);
+}
+
+#axr-root .axr-toolbar__bar .axr-button--primary:hover {
+	background: var(--axr-accent-dark);
+}
+
+#axr-root .axr-toolbar__bar .axr-button--answer .axr-icon {
+	display: none;
+}
+
+#axr-root .axr-toolbar__bar .axr-button--answer[aria-pressed="true"] .axr-icon {
+	display: block;
+}
+
+/* On: "Stop leaving notes", the open sidebar, and the answer already given. */
+#axr-root .axr-toolbar__bar .axr-button[aria-pressed="true"],
+#axr-root .axr-toolbar__bar .axr-button[aria-expanded="true"],
+#axr-root .axr-toolbar__bar .axr-button[aria-pressed="true"]:hover,
+#axr-root .axr-toolbar__bar .axr-button[aria-expanded="true"]:hover {
+	color: var(--axr-bar);
+	background: var(--axr-bar-ink);
+	box-shadow: none;
+}
+
+#axr-root .axr-toolbar__bar .axr-button:focus-visible {
+	outline: 2px solid #fff;
+	outline-offset: 1px;
+}
+
+/* Lines under the bar: the reviewer's answer, and why notes are off. */
+#axr-root .axr-toolbar__decision,
+#axr-root .axr-toolbar__info {
+	margin: 0;
+	padding: 8px 12px;
+	background: var(--axr-paper);
+	border-bottom: 1px solid var(--axr-line);
+	border-inline-start: 4px solid var(--axr-accent);
+}
+
+#axr-root .axr-toolbar__decision:empty,
+#axr-root .axr-toolbar__info:empty {
+	display: none;
+}
+
+#axr-root .axr-toolbar__decision--approved {
+	border-inline-start-color: #4ab866;
+}
+
+#axr-root .axr-toolbar__decision--changes_requested,
+#axr-root .axr-toolbar__decision--edited {
+	border-inline-start-color: #f0b849;
+}
+
+/* What changed since the last visit. */
+#axr-root .axr-changes {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 4px 8px;
+	padding: 8px 12px;
+	background: var(--axr-paper);
+	border-bottom: 1px solid var(--axr-line);
+	border-inline-start: 4px solid var(--axr-accent);
+}
+
+#axr-root .axr-changes__text {
+	margin: 0;
+	margin-inline-end: 8px;
+	font-weight: 600;
+}
+
+#axr-root .axr-changes__close {
+	margin-inline-start: auto;
+}
+
+#axr-root .axr-changes__meta,
+#axr-root .axr-changes__details {
+	flex-basis: 100%;
+	margin: 0;
+	color: var(--axr-muted);
+}
+
+#axr-root .axr-changes__details summary {
+	cursor: pointer;
+}
+
+#axr-root .axr-changes__details summary:focus-visible {
+	outline: 2px solid var(--axr-accent);
+	outline-offset: 2px;
+}
+
+#axr-root .axr-changes__removed {
+	margin: 4px 0 0;
+	padding-inline-start: 20px;
+}
+
+/* Passing messages, like the editor's snackbar. */
+#axr-root .axr-snackbar {
+	position: fixed;
+	inset-inline-start: 16px;
+	bottom: 16px;
+	z-index: 99994;
+	max-width: min(560px, calc(100vw - 32px));
+	margin: 0;
+	padding: 12px 20px;
+	color: #fff;
+	background: rgba(0, 0, 0, 0.85);
+	-webkit-backdrop-filter: blur(16px) saturate(180%);
+	backdrop-filter: blur(16px) saturate(180%);
+	border: 1px solid transparent;
+	border-radius: 4px;
+	box-shadow: var(--axr-shadow);
+	cursor: pointer;
+}
+
+#axr-root .axr-snackbar:empty {
+	display: none;
+}
+
+/* Form fields. */
+#axr-root .axr-field {
+	margin: 0 0 16px;
+}
+
+#axr-root .axr-label {
+	display: block;
+	margin: 0 0 8px;
+	color: var(--axr-ink);
+	font-size: 11px;
+	font-weight: 500;
+	line-height: 1.4;
+	text-transform: uppercase;
+}
+
+#axr-root .axr-input {
+	display: block;
+	width: 100%;
+	min-height: 40px;
+	margin: 0;
+	padding: 0 12px;
+	color: var(--axr-ink);
+	background: var(--axr-paper);
+	border: 1px solid var(--axr-field);
+	border-radius: 2px;
+	box-shadow: 0 0 0 transparent;
+	font: inherit;
+	line-height: 20px;
+	-webkit-appearance: none;
+	appearance: none;
+}
+
+#axr-root textarea.axr-input {
+	min-height: 80px;
+	padding: 9px 11px;
+	resize: vertical;
+}
+
+#axr-root .axr-input::placeholder {
+	color: var(--axr-muted);
+	opacity: 1;
+}
+
+#axr-root .axr-input:focus {
+	border-color: var(--axr-accent);
+	box-shadow: 0 0 0 0.5px var(--axr-accent);
+	outline: 2px solid transparent;
+}
+
+#axr-root .axr-trap {
+	position: absolute !important;
+	inset-inline-start: -10000px;
+	width: 1px;
+	height: 1px;
+	overflow: hidden;
+}
+
+/* The note form, beside its block. */
+#axr-root .axr-popover {
+	position: fixed;
+	z-index: 99995;
+	width: min(340px, calc(100vw - 24px));
+	padding: 16px;
+	background: var(--axr-paper);
+	border: 1px solid transparent;
+	border-radius: 8px;
+	box-shadow: 0 0 0 1px #ccc, var(--axr-shadow);
+}
+
+#axr-root .axr-popover__title {
+	margin: 0 0 16px;
+	font-size: 13px;
+	font-weight: 600;
+	line-height: 1.4;
+}
+
+#axr-root .axr-popover__form {
+	margin: 0;
+}
+
+#axr-root .axr-popover__quote {
+	margin: 0 0 16px;
+	padding-inline-start: 12px;
+	color: var(--axr-muted);
+	border-inline-start: 2px solid var(--axr-line);
+}
+
+#axr-root .axr-popover__who {
+	margin: 0 0 16px;
+	color: var(--axr-muted);
+}
+
+#axr-root .axr-popover__error {
+	margin: 0 0 16px;
+	padding: 8px 12px;
+	color: var(--axr-ink);
+	background: #fcf0f1;
+	border-inline-start: 4px solid #cc1818;
+}
+
+#axr-root .axr-popover__error:empty {
+	display: none;
+}
+
+#axr-root .axr-popover__actions {
+	display: flex;
+	justify-content: flex-end;
+	gap: 8px;
+	margin: 0;
+}
+
+#axr-root .axr-popover .axr-button {
+	height: 32px;
+	padding: 0 12px;
+}
+
+#axr-root .axr-popover .axr-button--icon {
+	padding: 0;
+}
+
+/* Approve and Request changes: a dialog over the page. */
+#axr-root .axr-overlay {
+	position: fixed;
+	inset: 0;
+	z-index: 100000;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	padding: 16px;
+	background: rgba(0, 0, 0, 0.35);
+}
+
+#axr-root .axr-popover--fixed {
+	position: relative;
+	width: min(400px, 100%);
+	max-height: 100%;
+	overflow-y: auto;
+	padding: 24px 32px 32px;
+	box-shadow: 0 5px 15px rgba(0, 0, 0, 0.08), 0 15px 27px rgba(0, 0, 0, 0.07), 0 30px 36px rgba(0, 0, 0, 0.04), 0 50px 43px rgba(0, 0, 0, 0.02);
+}
+
+#axr-root .axr-popover__head {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px;
+	margin: 0 0 20px;
+}
+
+#axr-root .axr-popover__head .axr-popover__title {
+	margin: 0;
+	font-size: 20px;
+	line-height: 1.2;
+}
+
+#axr-root .axr-popover__head .axr-button--icon {
+	margin-inline-end: -8px;
+}
+
+#axr-root .axr-popover--fixed .axr-popover__actions .axr-button {
+	height: 40px;
+	padding: 0 16px;
+}
+
+/* The notes sidebar. */
+#axr-root .axr-panel {
+	position: fixed;
+	top: calc(var(--axr-admin, 0px) + var(--axr-top, 32px));
+	inset-inline-end: 0;
+	bottom: 0;
+	z-index: 99989;
+	display: flex;
+	flex-direction: column;
+	width: 320px;
+	max-width: 100vw;
+	background: var(--axr-paper);
+	border-inline-start: 1px solid var(--axr-line);
+}
+
+#axr-root .axr-panel__head {
+	display: flex;
+	flex: none;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px;
+	height: 48px;
+	padding-inline: 16px 8px;
+	border-bottom: 1px solid var(--axr-line);
+}
+
+#axr-root .axr-panel__head h2 {
+	margin: 0;
+	font-size: 13px;
+	font-weight: 600;
+	line-height: 1.4;
+}
+
+#axr-root .axr-panel__list {
+	flex: 1;
+	overflow-y: auto;
+	overscroll-behavior: contain;
+	padding: 16px 16px 24px;
+}
+
+#axr-root .axr-panel__empty {
+	margin: 0;
+	color: var(--axr-muted);
+}
+
+#axr-root .axr-panel__threads,
+#axr-root .axr-thread__replies {
+	display: flex;
+	flex-direction: column;
+	gap: 16px;
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+
+#axr-root .axr-panel__separator {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	margin: 16px 0;
+	font-size: 11px;
+	font-weight: 500;
+	line-height: 1.4;
+	text-transform: uppercase;
+}
+
+#axr-root .axr-panel__separator::before,
+#axr-root .axr-panel__separator::after {
+	content: "";
+	flex: 1;
+	height: 1px;
+	background: var(--axr-line);
+}
+
+#axr-root .axr-thread {
+	display: flex;
+	flex-direction: column;
+	gap: 16px;
+	padding: 16px;
+	background: var(--axr-card);
+	border: 1px solid var(--axr-line);
+	border-radius: 8px;
+}
+
+#axr-root .axr-note__head {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+}
+
+#axr-root .axr-avatar {
+	display: block;
+	flex: none;
+	width: 32px;
+	height: 32px;
+	padding: 2px;
+	background: var(--axr-paper);
+	border: 2px solid var(--axr-ring, #3858e9);
+	border-radius: 50%;
+}
+
+#axr-root .axr-avatar--1 {
+	--axr-ring: #b42aed;
+}
+
+#axr-root .axr-avatar--2 {
+	--axr-ring: #c9356e;
+}
+
+#axr-root .axr-avatar--3 {
+	--axr-ring: #d1561b;
+}
+
+#axr-root .axr-avatar--4 {
+	--axr-ring: #008a20;
+}
+
+#axr-root .axr-avatar--5 {
+	--axr-ring: #007a9c;
+}
+
+#axr-root .axr-avatar__initial {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 100%;
+	height: 100%;
+	color: var(--axr-ink);
+	background: #e0e0e0;
+	border-radius: 50%;
+	font-size: 11px;
+	font-weight: 600;
+	line-height: 1;
+}
+
+#axr-root .axr-note__meta {
+	display: flex;
+	flex-direction: column;
+	min-width: 0;
+}
+
+#axr-root .axr-note__author {
+	overflow: hidden;
+	color: var(--axr-ink);
+	font-size: 12px;
+	font-weight: 500;
+	line-height: 16px;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+#axr-root .axr-note__time {
+	color: var(--axr-muted);
+	font-size: 12px;
+	line-height: 16px;
+}
+
+#axr-root .axr-note__text {
+	margin: 12px 0 0;
+	line-height: 20px;
+	overflow-wrap: anywhere;
+	white-space: pre-line;
+}
+
+#axr-root .axr-note__text + .axr-note__text {
+	margin-top: 8px;
+}
+
+#axr-root .axr-thread__reply {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	margin: 0;
+}
+
+#axr-root .axr-thread__reply .axr-input {
+	min-height: 60px;
+}
+
+/* Small screens: taller bar, icon-only tools, sheets instead of side-by-side. */
+@media (max-width: 782px) {
+	#axr-root .axr-toolbar__bar {
+		min-height: 46px;
+		padding: 0 8px;
+	}
+
+	#axr-root .axr-toolbar__who {
+		display: none;
+	}
+
+	#axr-root .axr-toolbar__bar .axr-button {
+		height: 36px;
+		padding: 0 10px;
+		font-size: 13px;
+	}
+
+	#axr-root .axr-toolbar__bar .axr-button--tool {
+		width: 36px;
+		padding: 0;
+	}
+
+	#axr-root .axr-toolbar__bar .axr-button--tool .axr-icon {
+		width: 24px;
+		height: 24px;
+		margin: 0;
+	}
+
+	#axr-root .axr-toolbar__bar .axr-button--tool .axr-button__text {
+		position: absolute;
+		width: 1px;
+		height: 1px;
+		margin: -1px;
+		overflow: hidden;
+		clip-path: inset(50%);
+		white-space: nowrap;
+	}
+
+	#axr-root .axr-panel {
+		width: 100%;
+		border-inline-start: 0;
+	}
+}
+
+@media (max-width: 600px) {
+	/* 16px keeps phones from zooming into a field. */
+	#axr-root .axr-input {
+		font-size: 16px;
+	}
+
+	#axr-root .axr-popover {
+		top: auto;
+		right: 8px;
+		bottom: 8px;
+		left: 8px;
+		width: auto;
+		max-height: calc(100% - var(--axr-admin, 0px) - var(--axr-top, 46px) - 16px);
+		overflow-y: auto;
+	}
+
+	#axr-root .axr-popover--fixed {
+		inset: auto;
+		width: 100%;
+		max-height: 100%;
+		padding: 16px 24px 24px;
+	}
+}
+
+@media (max-width: 400px) {
+	#axr-root .axr-toolbar__name {
+		position: absolute;
+		width: 1px;
+		height: 1px;
+		margin: -1px;
+		overflow: hidden;
+		clip-path: inset(50%);
+		white-space: nowrap;
+	}
+
+	#axr-root .axr-toolbar__title {
+		margin-inline-end: 0;
+	}
 }

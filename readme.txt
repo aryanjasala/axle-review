@@ -26,9 +26,9 @@ Draft link plugins let them read the draft. Feedback plugins let them comment, i
 
 **Reviewing:**
 
-* The reviewer sees the draft in your theme, like a published post, with a small toolbar.
+* The reviewer sees the draft in your theme, like a published post, under a review bar that looks like WordPress.
 * "Leave a note" outlines the blocks. Click one (or Tab to it and press Enter), write the note, send. Text selected in the block is quoted in the note. It works on phones too.
-* Reviewers see their own notes and your replies on their next visit, not other reviewers' notes, unless you turn that on for a link.
+* Reviewers see their own notes and your replies on their next visit, in a sidebar laid out like Notes in the editor. They do not see other reviewers' notes, unless you turn that on for a link.
 * **Approve** or **Request changes**, with their name and a comment. One answer per link, which they can change until the link ends. Asking for changes needs a comment.
 * A reviewer who comes back sees a bar such as "5 changes since your visit on Monday". Changed blocks are outlined, new blocks are marked, removed blocks are listed, and each changed block has a button for its earlier text. Next and previous buttons jump from change to change.
 
@@ -114,7 +114,7 @@ When they are scheduled, yes. They are not checked again when WordPress publishe
 
 = Does it work with page builders? =
 
-The link works with any post type that has Notes support. Notes on blocks need content made of blocks; on a page built with Elementor or Bricks the reviewer can read the page, and the toolbar says notes are not available.
+The link works with any post type that has Notes support. Notes on blocks need content made of blocks; on a page built with Elementor or Bricks the reviewer can read the page, and the review bar says notes are not available.
 
 = Does it work on multisite? =
 

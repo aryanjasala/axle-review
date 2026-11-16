@@ -31,7 +31,11 @@ Comments are closed on the review page. A post with a post password still asks f
 
 The page shows the draft and nothing else about the site. There is no admin bar, even for a signed-in visitor. Every query other than the main one (widgets, query loops, shortcodes) only sees public posts and attachments, so a block that lists posts cannot list other drafts. The head carries no shortlink, canonical link, REST or oEmbed discovery link, which would give away the draft's address.
 
-The toolbar has **Leave a note**, **View notes I left**, **Approve** and **Request changes** (see Sign-off below). In note mode every block of the post is outlined: click one, or Tab to it and press Enter, to open the note popover. Escape closes the popover, then leaves note mode. Text selected in the block travels with the note as a quote. The reviewer's name is kept for the browser session.
+A bar across the top of the page, in the size and colours of the WordPress admin bar, has **Leave a note**, **View notes I left**, **Approve** and **Request changes** (see Sign-off below). In note mode every block of the post is outlined: click one, or Tab to it and press Enter, to open the note form next to it. Escape closes the form, then leaves note mode. Text selected in the block travels with the note as a quote. The reviewer's name is kept for the browser session.
+
+**View notes I left** opens a sidebar with the reviewer's notes and the replies, laid out like Notes in the editor: one card for each thread, with resolved threads under their own heading. On a wide screen the sidebar sits beside the page; on a phone it covers it. **Approve** and **Request changes** open a dialog over the page.
+
+Everything the reviewer interface draws is inside one `#axr-root` element. Its styles start from the browser's defaults, so the theme's styles for buttons, fields and headings do not reach it. Messages such as "Note sent" appear in the bottom corner and are announced to screen readers.
 
 The review render marks each block of the post with `data-axr-block` (its path), `data-axr-hash` (a fingerprint of its name and text) and `data-axr-name` (the block name), using `WP_HTML_Tag_Processor` on the block's first tag.
 

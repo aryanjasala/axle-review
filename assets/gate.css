@@ -1,30 +1,32 @@
-/* Axle Review: the email code, password and refused-link page. */
+/* Axle Review: the email code, password and refused-link page, in the colours and sizes of the review interface. */
 .axr-gate-body {
 	margin: 0;
 	padding: 48px 16px;
-	color: #1d2327;
+	color: #1e1e1e;
 	background: #f0f0f1;
-	font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen-Sans, Ubuntu, Cantarell, "Helvetica Neue", sans-serif;
+	font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen-Sans, Ubuntu, Cantarell, "Helvetica Neue", sans-serif;
 }
 
 .axr-gate {
 	max-width: 440px;
 	margin: 0 auto;
-	padding: 24px 28px;
+	padding: 24px 32px 32px;
 	background: #fff;
-	border: 1px solid #c3c4c7;
+	border: 1px solid #ddd;
 	border-radius: 8px;
+	box-shadow: 0 2px 3px rgba(0, 0, 0, 0.05), 0 4px 5px rgba(0, 0, 0, 0.04);
 }
 
 .axr-gate__site {
 	margin: 0 0 4px;
-	color: #50575e;
-	font-size: 14px;
+	color: #595959;
+	font-size: 13px;
 }
 
 .axr-gate__title {
 	margin: 0 0 12px;
-	font-size: 24px;
+	font-size: 20px;
+	font-weight: 600;
 	line-height: 1.3;
 }
 
@@ -34,51 +36,70 @@
 
 .axr-gate__label {
 	display: block;
-	margin: 0 0 4px;
-	font-weight: 600;
+	margin: 0 0 8px;
+	font-size: 11px;
+	font-weight: 500;
+	line-height: 1.4;
+	text-transform: uppercase;
 }
 
 .axr-gate__input {
 	box-sizing: border-box;
 	display: block;
 	width: 100%;
-	margin: 0 0 12px;
-	padding: 8px 10px;
-	font-size: 18px;
-	border: 1px solid #8c8f94;
-	border-radius: 4px;
+	min-height: 40px;
+	margin: 0 0 16px;
+	padding: 0 12px;
+	color: #1e1e1e;
+	font: inherit;
+	font-size: 16px;
+	border: 1px solid #949494;
+	border-radius: 2px;
 }
 
 .axr-gate__button {
-	padding: 8px 16px;
+	min-height: 40px;
+	padding: 0 16px;
 	color: #fff;
-	background: #0f6b5c;
-	border: 1px solid #0f6b5c;
-	border-radius: 4px;
-	font-size: 16px;
+	background: #3858e9;
+	border: 1px solid #3858e9;
+	border-radius: 2px;
+	font: inherit;
+	font-size: 13px;
+	font-weight: 500;
 	cursor: pointer;
 }
 
 .axr-gate__button--secondary {
-	color: #0f6b5c;
+	color: #3858e9;
 	background: #fff;
 }
 
 .axr-gate__button:focus-visible,
 .axr-gate__input:focus-visible {
-	outline: 2px solid #0f6b5c;
+	outline: 2px solid #3858e9;
 	outline-offset: 2px;
 }
 
 .axr-gate__error {
 	padding: 8px 12px;
-	color: #8a2424;
+	color: #1e1e1e;
 	background: #fcf0f1;
-	border-left: 4px solid #d63638;
+	border-inline-start: 4px solid #cc1818;
 }
 
 .axr-gate__note {
 	padding: 8px 12px;
-	background: #edfaef;
-	border-left: 4px solid #00a32a;
+	background: #eff9f1;
+	border-inline-start: 4px solid #4ab866;
+}
+
+.axr-gate__button:hover {
+	background: #2145e6;
+	border-color: #2145e6;
+}
+
+.axr-gate__button--secondary:hover {
+	color: #2145e6;
+	background: #fff;
 }
