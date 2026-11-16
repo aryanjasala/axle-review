@@ -4,7 +4,7 @@ Tags: notes, review, draft, preview, feedback
 Requires at least: 6.9
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 1.0.0
+Stable tag: 1.1.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -130,6 +130,13 @@ Yes, per site. A network admin can pause review links on every site at once from
 6. Settings > Writing > Review: the publish gate, link defaults and Slack.
 
 == Changelog ==
+
+= 1.1.0 =
+* Fix: only list and count notes on posts the user may edit
+* New: a review page that looks like WordPress, with a notes sidebar and dialogs that fit on phones
+* Fix: write relative times in lower case so they read well mid-sentence
+* New: approvals that notice later edits, and changes since a visit
+* Fix: ask before revoking review links
 
 = 1.0.0 =
 * First release.
