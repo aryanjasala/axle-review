@@ -417,7 +417,8 @@ final class Notes {
 	 * Notes matching filters.
 	 *
 	 * @param array $args status (unresolved, resolved, all), post_id, post_type, author (user ID), guests (bool),
-	 *                    on_posts_by (user ID), mentions (user ID), since (Unix time), page, per_page.
+	 *                    on_posts_by (user ID), mentions (user ID), since (Unix time), page, per_page, and
+	 *                    reader (see reader()) to keep the list and its total to posts a user may edit.
 	 * @return array{items: \WP_Comment[], total: int}
 	 */
 	public function query( array $args ): array {
@@ -503,11 +504,110 @@ final class Notes {
 				),
 			);
 		}
-		if ( ! empty( $args['restrict_author'] ) ) {
-			$query['post_author__in'] = array( (int) $args['restrict_author'] );
+		if ( isset( $args['reader'] ) ) {
+			$query = self::limit_to_reader( $query, (array) $args['reader'] );
 		}
 
 		return $query;
+	}
+
+	/**
+	 * Whose notes the current user may read, by post type: every post of the
+	 * types in `all`, and only their own posts of the types in `own`. A post
+	 * type they cannot edit at all is in neither, so its notes never reach a
+	 * list or a count.
+	 *
+	 * @return array{all: string[], own: string[], user: int}
+	 */
+	public static function reader(): array {
+		$all = array();
+		$own = array();
+		foreach ( get_post_types( array(), 'objects' ) as $type ) {
+			if ( current_user_can( $type->cap->edit_others_posts ) ) {
+				$all[] = (string) $type->name;
+			} elseif ( current_user_can( $type->cap->edit_posts ) ) {
+				$own[] = (string) $type->name;
+			}
+		}
+
+		return array(
+			'all'  => $all,
+			'own'  => $own,
+			'user' => get_current_user_id(),
+		);
+	}
+
+	/**
+	 * Narrows WP_Comment_Query arguments to what a reader may see.
+	 *
+	 * @param array $query  Arguments so far.
+	 * @param array $reader From reader().
+	 * @return array
+	 */
+	private static function limit_to_reader( array $query, array $reader ): array {
+		$user = (int) ( $reader['user'] ?? 0 );
+		$all  = array_values( array_map( 'strval', (array) ( $reader['all'] ?? array() ) ) );
+		$own  = array_values( array_map( 'strval', (array) ( $reader['own'] ?? array() ) ) );
+
+		if ( isset( $query['post_type'] ) ) {
+			$all = array_values( array_intersect( $all, (array) $query['post_type'] ) );
+			$own = array_values( array_intersect( $own, (array) $query['post_type'] ) );
+		}
+		// Asked for posts by someone else: the types where only their own posts count cannot match.
+		if ( isset( $query['post_author__in'] ) && array( $user ) !== $query['post_author__in'] ) {
+			$own = array();
+		}
+
+		if ( ! $all && ! $own ) {
+			$query['post__in'] = array( 0 );
+			return $query;
+		}
+
+		$query['post_type'] = array_merge( $all, $own );
+		if ( ! $all ) {
+			$query['post_author__in'] = array( $user );
+		} elseif ( $own && ! isset( $query['post_author__in'] ) ) {
+			// Two rules in one query: reader_clauses() writes them. The cache domain keeps
+			// one reader's cached result from being served to another.
+			$query['axr_reader']   = array(
+				'all'  => $all,
+				'own'  => $own,
+				'user' => $user,
+			);
+			$query['cache_domain'] = 'axle_review_' . md5( (string) wp_json_encode( $query['axr_reader'] ) );
+		}
+
+		return $query;
+	}
+
+	/**
+	 * Writes the reader's two rules into a notes query: any post of some post
+	 * types, and only their own posts of others. WP_Comment_Query has no
+	 * arguments for an "or" between the two.
+	 *
+	 * @param mixed $clauses Query clauses.
+	 * @param mixed $query   WP_Comment_Query.
+	 * @return mixed
+	 */
+	public static function reader_clauses( $clauses, $query ) {
+		$reader = is_object( $query ) && isset( $query->query_vars['axr_reader'] ) ? $query->query_vars['axr_reader'] : null;
+		if ( ! is_array( $clauses ) || ! is_array( $reader ) || empty( $reader['all'] ) || empty( $reader['own'] ) ) {
+			return $clauses;
+		}
+
+		global $wpdb;
+		$all    = array_values( array_map( 'strval', (array) $reader['all'] ) );
+		$own    = array_values( array_map( 'strval', (array) $reader['own'] ) );
+		$in_all = implode( ', ', array_fill( 0, count( $all ), '%s' ) );
+		$in_own = implode( ', ', array_fill( 0, count( $own ), '%s' ) );
+
+		$clauses['where'] = ( $clauses['where'] ?? '' ) . $wpdb->prepare(
+			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQLPlaceholders.UnfinishedPrepare -- Only %s placeholders are interpolated, one for each post type.
+			" AND ( {$wpdb->posts}.post_type IN ( {$in_all} ) OR ( {$wpdb->posts}.post_type IN ( {$in_own} ) AND {$wpdb->posts}.post_author = %d ) )",
+			array_merge( $all, $own, array( (int) ( $reader['user'] ?? 0 ) ) )
+		);
+
+		return $clauses;
 	}
 
 	/**
