@@ -142,6 +142,92 @@ final class NotesTest extends ReviewTestCase {
 		$this->assertSame( 0, Notes::query_args( array() )['parent'] );
 	}
 
+	public function test_a_reader_only_gets_notes_on_posts_they_may_edit(): void {
+		// An editor: every post of the post types they manage.
+		$editor = Notes::query_args(
+			array(
+				'reader' => array(
+					'all'  => array( 'post', 'page' ),
+					'own'  => array(),
+					'user' => 7,
+				),
+			)
+		);
+		$this->assertSame( array( 'post', 'page' ), $editor['post_type'] );
+		$this->assertArrayNotHasKey( 'post_author__in', $editor );
+		$this->assertArrayNotHasKey( 'axr_reader', $editor );
+
+		// An author: only their own posts.
+		$author = Notes::query_args(
+			array(
+				'reader' => array(
+					'all'  => array(),
+					'own'  => array( 'post' ),
+					'user' => 7,
+				),
+			)
+		);
+		$this->assertSame( array( 'post' ), $author['post_type'] );
+		$this->assertSame( array( 7 ), $author['post_author__in'] );
+
+		// A post type the reader cannot edit: nothing, so no count either.
+		$secret = Notes::query_args(
+			array(
+				'post_type' => 'secret',
+				'reader'    => array(
+					'all'  => array( 'post', 'page' ),
+					'own'  => array(),
+					'user' => 7,
+				),
+			)
+		);
+		$this->assertSame( array( 0 ), $secret['post__in'] );
+
+		// Someone else's posts, for a reader who may only see their own.
+		$other = Notes::query_args(
+			array(
+				'on_posts_by' => 3,
+				'reader'      => array(
+					'all'  => array(),
+					'own'  => array( 'post' ),
+					'user' => 7,
+				),
+			)
+		);
+		$this->assertSame( array( 0 ), $other['post__in'] );
+
+		// Both rules at once go to reader_clauses(), with a cache key of their own.
+		$mixed = Notes::query_args(
+			array(
+				'reader' => array(
+					'all'  => array( 'post' ),
+					'own'  => array( 'product' ),
+					'user' => 7,
+				),
+			)
+		);
+		$this->assertSame( array( 'post', 'product' ), $mixed['post_type'] );
+		$this->assertSame( 7, $mixed['axr_reader']['user'] );
+		$this->assertStringStartsWith( 'axle_review_', $mixed['cache_domain'] );
+
+		$another = Notes::query_args(
+			array(
+				'reader' => array(
+					'all'  => array( 'post' ),
+					'own'  => array( 'product' ),
+					'user' => 8,
+				),
+			)
+		);
+		$this->assertNotSame( $mixed['cache_domain'], $another['cache_domain'] );
+	}
+
+	public function test_reader_clauses_leave_other_queries_alone(): void {
+		$clauses = array( 'where' => 'comment_type = "note"' );
+		$this->assertSame( $clauses, Notes::reader_clauses( $clauses, (object) array( 'query_vars' => array() ) ) );
+		$this->assertSame( $clauses, Notes::reader_clauses( $clauses, null ) );
+	}
+
 	public function test_mentions_are_written_as_core_chips(): void {
 		$user = new \WP_User( array( 'ID' => 4, 'display_name' => 'Maria' ) );
 		$this->assertSame( '<span class="wp-note-mention user-4">@Maria</span>', Notes::mention( $user ) );

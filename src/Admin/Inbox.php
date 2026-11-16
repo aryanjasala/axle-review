@@ -157,9 +157,12 @@ final class Inbox implements Service {
 		if ( 'guests' === $view ) {
 			$args['guests'] = true;
 		}
-		if ( ! current_user_can( 'edit_others_posts' ) ) {
-			$args['restrict_author'] = get_current_user_id();
+		// A post this user cannot edit is not a filter they can use: its title would show.
+		if ( $args['post_id'] && ! current_user_can( 'edit_post', $args['post_id'] ) ) {
+			$args['post_id'] = 0;
 		}
+		// The list and its counts only cover posts this user may edit.
+		$args['reader'] = Notes::reader();
 
 		return $args;
 	}

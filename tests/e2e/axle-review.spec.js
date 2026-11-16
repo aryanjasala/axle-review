@@ -594,6 +594,43 @@ test.describe( 'Axle Review', () => {
 		expect( notesOn( postId ) ).toHaveLength( 2 );
 	} );
 
+	test( 'notes on posts a user cannot edit are not listed, not counted and not named', async ( { browser } ) => {
+		const postId = createDraft( 'Unannounced price change' );
+		wp( 'axle-review', 'notes', 'add', String( postId ), '--block=1', '--text=Keep this quiet.', '--user=admin' );
+
+		// An author asks about the admin's draft: no notes, and no number of them.
+		const author = await appPasswordClient( 'arjun', 'axr-scope' );
+		const listed = await author.call( 'GET', `/wp-abilities/v1/abilities/axle-review/list-notes/run?input[post]=${ postId }&input[status]=all` );
+		expect( listed.status ).toBe( 200 );
+		expect( listed.body ).toEqual( { total: 0, notes: [] } );
+		const everything = await author.call( 'GET', '/wp-abilities/v1/abilities/axle-review/list-notes/run?input[status]=all' );
+		expect( everything.body.total ).toBe( 0 );
+		await author.dispose();
+
+		// A post type with its own capabilities, which an editor does not have:
+		// its notes are not in the editor's list or in the total.
+		const counted = wpEval( `
+			register_post_type( 'axr_secret', array( 'public' => true, 'show_ui' => true, 'supports' => array( 'title', 'editor' => array( 'notes' => true ) ), 'capability_type' => 'axr_secret', 'map_meta_cap' => true ) );
+			$post = wp_insert_post( array( 'post_type' => 'axr_secret', 'post_title' => 'Secret plan', 'post_status' => 'draft', 'post_author' => 1 ) );
+			$note = wp_insert_comment( array( 'comment_post_ID' => $post, 'comment_type' => 'note', 'comment_content' => 'Secret note', 'comment_approved' => 0, 'user_id' => 1 ) );
+			AryanX\\Axle\\Review\\Notes::flush();
+			wp_set_current_user( get_user_by( 'login', 'maria' )->ID );
+			$found = wp_get_ability( 'axle-review/list-notes' )->execute( array( 'post_type' => 'axr_secret', 'status' => 'all' ) );
+			$all   = wp_get_ability( 'axle-review/list-notes' )->execute( array( 'status' => 'all' ) );
+			echo $found['total'] . '/' . count( $found['notes'] ) . ' ' . count( array_filter( $all['notes'], static fn( $item ) => (int) $item['post'] === (int) $post ) );
+			wp_delete_comment( $note, true );
+			wp_delete_post( $post, true );
+		` );
+		expect( counted ).toBe( '0/0 0' );
+
+		// Dashboard > Notes does not name a post the user cannot edit.
+		const { context, page } = await logInAs( browser, 'arjun', 'demo-password-123' );
+		await page.goto( `/wp-admin/index.php?page=axle-review-notes&post_id=${ postId }` );
+		await expect( page.locator( '.wrap h1' ).first() ).toBeVisible();
+		await expect( page.locator( '.wrap' ) ).not.toContainText( 'Unannounced price change' );
+		await context.close();
+	} );
+
 	test( 'WP-CLI, Site Health and the privacy tools', async ( { browser } ) => {
 		const postId = createDraft( 'Spring menu announcement' );
 		const url = wp( 'axle-review', 'link', 'create', String( postId ), '--label=CLI', '--expires=2d', '--views=3', '--email=legal@example.com', '--porcelain' );

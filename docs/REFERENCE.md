@@ -81,7 +81,7 @@ Editors reply, resolve and reopen reviewer notes in the Notes sidebar like any n
 
 ## Dashboard > Notes
 
-Needs `edit_posts` (`axle_review_inbox_capability`). Each row is checked with `edit_post` on its post; users without `edit_others_posts` see notes on their own posts.
+Needs `edit_posts` (`axle_review_inbox_capability`). The list and its counts only cover posts the user may edit: for each post type, every post when they can edit other people's posts of that type, only their own posts when they can only edit their own, and none when they cannot edit that type at all. Each row is still checked with `edit_post` on its post. A `post_id` in the address for a post the user cannot edit is ignored.
 
 | View | Lists |
 | --- | --- |
@@ -235,7 +235,7 @@ On WordPress 6.9 and later Axle Review registers [abilities](https://developer.w
 
 | Ability | Does | Needs |
 | --- | --- | --- |
-| `axle-review/list-notes` | Read-only. Notes with `status` (unresolved, resolved, all), `post`, `post_type`, `mentions` (user ID, 7.1+), `guests`, `since`, `page`, `per_page` | the inbox capability; rows filtered by `edit_post` |
+| `axle-review/list-notes` | Read-only. Notes with `status` (unresolved, resolved, all), `post`, `post_type`, `mentions` (user ID, 7.1+), `guests`, `since`, `page`, `per_page` | the inbox capability; the notes and `total` only cover posts the user may edit, by the same rule as Dashboard > Notes |
 | `axle-review/get-note-thread` | Read-only. `id`: the note, replies, the block it is on (name, path, text) and the resolve/reopen history | `edit_post` on its post |
 | `axle-review/add-note` | `post`, `text`, and `block` (a path such as `2` or `2.0`) or `match` (text the block contains), or `reply_to`. `mentions` (user IDs) writes core mention chips on 7.1+. The note is by the current user | `edit_post` |
 | `axle-review/resolve-note` | Idempotent. `id` | `edit_post` on its post |

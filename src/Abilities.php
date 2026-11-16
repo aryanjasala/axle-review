@@ -639,9 +639,14 @@ final class Abilities implements Service {
 			'page'      => (int) ( $input['page'] ?? 1 ),
 			'per_page'  => (int) ( $input['per_page'] ?? 20 ),
 		);
-		if ( ! current_user_can( 'edit_others_posts' ) ) {
-			$args['restrict_author'] = get_current_user_id();
+		// Neither the notes nor their number, for a post or post type this user cannot edit.
+		if ( $args['post_id'] && ! current_user_can( 'edit_post', $args['post_id'] ) ) {
+			return array(
+				'total' => 0,
+				'notes' => array(),
+			);
 		}
+		$args['reader'] = Notes::reader();
 
 		$found = $this->notes->query( $args );
 		$notes = array();

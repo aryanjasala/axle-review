@@ -216,6 +216,8 @@ final class Plugin {
 			$service->register();
 		}
 
+		add_filter( 'comments_clauses', array( Notes::class, 'reader_clauses' ), 10, 2 );
+
 		if ( defined( 'WP_CLI' ) && WP_CLI ) {
 			$command = new Command( $this->gate, $this->alerts, $this->events );
 			\WP_CLI::add_command( 'axle-review link', new LinkCommand( $this->settings, $this->links, $this->events, $this->approvals ) );
