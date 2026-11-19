@@ -106,6 +106,8 @@ final class AxleUi {
 		if ( ! headers_sent() ) {
 			status_header( (int) $args['status'] );
 			nocache_headers();
+			// Older cores leave out no-store; guest pages can hold codes and personal details.
+			header( 'Cache-Control: no-cache, must-revalidate, max-age=0, no-store, private' );
 			header( 'Content-Type: text/html; charset=' . get_bloginfo( 'charset' ) );
 			header( 'X-Robots-Tag: noindex, nofollow' );
 		}
