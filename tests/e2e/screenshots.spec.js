@@ -4,7 +4,7 @@ const fs = require( 'fs' );
 const { test, expect, wp, openEditor } = require( './utils' );
 const { STORAGE_STATE } = require( './utils/config' );
 const { prepareSite, shot } = require( './utils/media' );
-const { seedReview, unseedReview } = require( './seed' );
+const { seedReview, unseedReview, seedWorkingCopy } = require( './seed' );
 
 /** Opens the Share for review panel in the document sidebar. */
 async function openSharePanel( page ) {
@@ -38,9 +38,12 @@ test.describe( 'Screenshots', () => {
 	test( '1: the Share for review panel', async () => {
 		await openEditor( page, seeded.menu );
 		await openSharePanel( page );
-		await page.getByLabel( 'Label' ).fill( 'Agency' );
-		await page.getByLabel( 'Opens' ).selectOption( '1' );
-		await page.getByRole( 'button', { name: 'Create link' } ).click();
+		await page.getByRole( 'button', { name: 'Create a review link' } ).click();
+		const dialog = page.getByRole( 'dialog', { name: 'Create a review link' } );
+		await dialog.getByLabel( 'Label' ).fill( 'Agency' );
+		await dialog.getByRole( 'button', { name: 'More options' } ).click();
+		await dialog.getByLabel( 'Opens' ).selectOption( '1' );
+		await dialog.getByRole( 'button', { name: 'Create link' } ).click();
 		await expect( page.locator( '.axr-new-url' ) ).toBeVisible();
 		await page.locator( '.axr-share' ).evaluate( ( panel ) => panel.scrollIntoView() );
 		await shot( page, 1 );
@@ -78,10 +81,31 @@ test.describe( 'Screenshots', () => {
 		wp( 'option', 'delete', 'axle_review_settings' );
 	} );
 
-	test( '5: Tools > Review Links', async () => {
-		await page.goto( '/wp-admin/tools.php?page=axle-review-links' );
+	test( '5: Dashboard > Notes > Review links', async () => {
+		await page.goto( '/wp-admin/index.php?page=axle-review-notes&view=links' );
 		await expect( page.locator( '.axr-links tbody tr' ).first() ).toBeVisible();
 		await shot( page, 5 );
+	} );
+
+	test( '7: the code page a reviewer sees', async ( { browser } ) => {
+		const reviewer = await browser.newContext( { storageState: { cookies: [], origins: [] }, viewport: { width: 1280, height: 800 }, deviceScaleFactor: 2 } );
+		const tab = await reviewer.newPage();
+		await tab.goto( seeded.legal.url );
+		await tab.getByRole( 'button', { name: /Email me a code/ } ).click();
+		await expect( tab.getByLabel( 'Code' ) ).toBeVisible();
+		await shot( tab, 7 );
+		await reviewer.close();
+	} );
+
+	test( '8: a working copy, ready to publish as a change', async () => {
+		const copy = seedWorkingCopy();
+		wp( 'option', 'update', 'axle_review_settings', '{"gate_enabled":false}', '--format=json' );
+		await openEditor( page, copy.copy );
+		await openSharePanel( page );
+		await expect( page.locator( '.axr-change__publish' ) ).toBeVisible();
+		await page.locator( '.axr-share' ).evaluate( ( panel ) => panel.scrollIntoView() );
+		await shot( page, 8 );
+		wp( 'option', 'delete', 'axle_review_settings' );
 	} );
 
 	test( '6: Settings > Writing > Review', async () => {

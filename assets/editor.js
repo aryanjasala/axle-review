@@ -44,6 +44,7 @@
 		code_sent: __( 'Code sent', 'axle-review' ),
 		code_ok: __( 'Right code', 'axle-review' ),
 		code_fail: __( 'Wrong code', 'axle-review' ),
+		guess_alert: __( 'Locked after many wrong tries', 'axle-review' ),
 		password_fail: __( 'Wrong password', 'axle-review' ),
 		note: __( 'Left a note', 'axle-review' ),
 		reply_seen: __( 'Saw replies', 'axle-review' ),
@@ -72,7 +73,7 @@
 	function relative( iso ) {
 		const seconds = Math.round( ( new Date( iso ).getTime() - Date.now() ) / 1000 );
 		if ( Math.abs( seconds ) < 60 ) {
-			return __( 'Just now', 'axle-review' );
+			return __( 'just now', 'axle-review' );
 		}
 		const unit = UNITS.find( ( entry ) => Math.abs( seconds ) >= entry[ 1 ] ) || UNITS[ UNITS.length - 1 ];
 		try {
@@ -82,11 +83,12 @@
 		}
 	}
 
-	function Time( { iso } ) {
+	function Time( { iso, format } ) {
 		if ( ! iso ) {
 			return null;
 		}
-		return el( 'time', { dateTime: iso, title: new Date( iso ).toLocaleString() }, relative( iso ) );
+		const text = relative( iso );
+		return el( 'time', { dateTime: iso, title: new Date( iso ).toLocaleString() }, format ? format( text ) : text );
 	}
 
 	/**
@@ -240,13 +242,15 @@
 		const [ open, setOpen ] = useState( false );
 		const views = link.max_views ? sprintf( /* translators: 1: views, 2: limit. */ __( '%1$d of %2$d views', 'axle-review' ), link.views, link.max_views ) : sprintf( /* translators: %d: views. */ _n( '%d view', '%d views', link.views, 'axle-review' ), link.views );
 		const notes = sprintf( /* translators: %d: notes. */ _n( '%d note', '%d notes', link.notes, 'axle-review' ), link.notes );
-		const expiry = 'expired' === link.status || 'revoked' === link.status ? __( 'Ended', 'axle-review' ) : __( 'Expires', 'axle-review' );
+		const ended = 'expired' === link.status || 'revoked' === link.status;
+		// One translatable sentence, so languages can order the words as they need.
+		const expiry = ( text ) => ( ended ? sprintf( /* translators: %s: a time such as "2 days ago". */ __( 'ended %s', 'axle-review' ), text ) : sprintf( /* translators: %s: a time such as "in 7 days". */ __( 'expires %s', 'axle-review' ), text ) );
 
 		return el(
 			'li',
 			{ className: 'axr-link axr-link--' + link.status },
 			el( 'p', { className: 'axr-link__head' }, el( 'strong', null, link.label || sprintf( /* translators: %d: link ID. */ __( 'Link %d', 'axle-review' ), link.id ) ), ' ', el( 'span', { className: 'axr-link__status' }, STATUS[ link.status ] || link.status ) ),
-			el( 'p', { className: 'axr-link__meta' }, [ views, notes, link.email ].filter( Boolean ).join( ', ' ) + ', ' + expiry + ' ', el( Time, { iso: link.expires_at } ) ),
+			el( 'p', { className: 'axr-link__meta' }, [ views, notes, link.email ].filter( Boolean ).join( ', ' ) + ', ', el( Time, { iso: link.expires_at, format: expiry } ) ),
 			el(
 				'p',
 				{ className: 'axr-link__actions' },
@@ -257,8 +261,14 @@
 		);
 	}
 
+	/**
+	 * "Create a review link": a button that opens a modal with the two things everyone sets (Label, Expires)
+	 * and the rest under "More options".
+	 */
 	function CreateForm( { postId, defaults, expiry, onCreated } ) {
 		const choices = expiryChoices( expiry );
+		const [ open, setOpen ] = useState( false );
+		const [ more, setMore ] = useState( false );
 		const [ label, setLabel ] = useState( '' );
 		const [ expires, setExpires ] = useState( String( defaults.expires ) );
 		const [ views, setViews ] = useState( String( defaults.max_views ) );
@@ -266,24 +276,33 @@
 		const [ password, setPassword ] = useState( '' );
 		const [ allowNotes, setAllowNotes ] = useState( true );
 		const [ shareNotes, setShareNotes ] = useState( !! defaults.share );
-		const [ sendTo, setSendTo ] = useState( '' );
 		const [ busy, setBusy ] = useState( false );
 		const [ error, setError ] = useState( '' );
 
-		const create = () => {
+		const close = () => {
+			setOpen( false );
+			setMore( false );
+			setError( '' );
+		};
+
+		const create = ( event ) => {
+			if ( event && event.preventDefault ) {
+				event.preventDefault();
+			}
 			setBusy( true );
 			setError( '' );
 			apiFetch( {
 				path: '/axle-review/v1/links',
 				method: 'POST',
-				data: { post: postId, label, expires: Number( expires ), max_views: Number( views ) || 0, email, password, allow_notes: allowNotes, share_notes: shareNotes, send_to: sendTo },
+				// One address: the link is locked to it, and the link is emailed to it.
+				data: { post: postId, label, expires: Number( expires ), max_views: Number( views ) || 0, email, password, allow_notes: allowNotes, share_notes: shareNotes, send_to: email },
 			} )
 				.then( ( result ) => {
 					setBusy( false );
 					setLabel( '' );
 					setEmail( '' );
 					setPassword( '' );
-					setSendTo( '' );
+					close();
 					doAction( 'axleReview.linkCreated', result );
 					onCreated( result );
 				} )
@@ -304,18 +323,38 @@
 		}
 
 		return el(
-			'div',
-			{ className: 'axr-create' },
-			error && el( Notice, { status: 'error', isDismissible: false }, error ),
-			el( TextControl, { label: __( 'Label', 'axle-review' ), help: __( 'Who it is for, such as "Legal".', 'axle-review' ), value: label, onChange: setLabel, __nextHasNoMarginBottom: true, __next40pxDefaultSize: true } ),
-			el( SelectControl, { label: __( 'Expires after', 'axle-review' ), value: expires, options: choices, onChange: setExpires, __nextHasNoMarginBottom: true, __next40pxDefaultSize: true } ),
-			el( SelectControl, { label: __( 'Opens', 'axle-review' ), value: views, options: viewChoices, onChange: setViews, __nextHasNoMarginBottom: true, __next40pxDefaultSize: true } ),
-			el( TextControl, { label: __( 'Lock to an email (optional)', 'axle-review' ), help: __( 'The reviewer gets a one-time code there before the page opens.', 'axle-review' ), type: 'email', value: email, onChange: setEmail, __nextHasNoMarginBottom: true, __next40pxDefaultSize: true } ),
-			el( TextControl, { label: __( 'Password (optional)', 'axle-review' ), type: 'password', autoComplete: 'new-password', value: password, onChange: setPassword, __nextHasNoMarginBottom: true, __next40pxDefaultSize: true } ),
-			el( ToggleControl, { label: __( 'Reviewer can leave notes', 'axle-review' ), checked: allowNotes, onChange: setAllowNotes, __nextHasNoMarginBottom: true } ),
-			el( ToggleControl, { label: __( 'Show them notes other reviewers left', 'axle-review' ), checked: shareNotes, onChange: setShareNotes, __nextHasNoMarginBottom: true } ),
-			el( TextControl, { label: __( 'Email the link to (optional)', 'axle-review' ), type: 'email', value: sendTo, onChange: setSendTo, __nextHasNoMarginBottom: true, __next40pxDefaultSize: true } ),
-			el( Button, { variant: 'primary', className: 'axr-create__submit', onClick: create, isBusy: busy, disabled: busy }, __( 'Create link', 'axle-review' ) )
+			Fragment,
+			null,
+			el( Button, { variant: 'secondary', className: 'axr-create__open', onClick: () => setOpen( true ) }, __( 'Create a review link', 'axle-review' ) ),
+			open &&
+				el(
+					Modal,
+					{ title: __( 'Create a review link', 'axle-review' ), onRequestClose: close, className: 'axr-create-modal', size: 'medium' },
+					el(
+						'form',
+						{ className: 'axr-create', onSubmit: create },
+						error && el( Notice, { status: 'error', isDismissible: false }, error ),
+						el( TextControl, { label: __( 'Label', 'axle-review' ), help: __( 'Who it is for, such as "Legal".', 'axle-review' ), value: label, onChange: setLabel, __nextHasNoMarginBottom: true, __next40pxDefaultSize: true } ),
+						el( SelectControl, { label: __( 'Expires after', 'axle-review' ), value: expires, options: choices, onChange: setExpires, __nextHasNoMarginBottom: true, __next40pxDefaultSize: true } ),
+						el( 'p', null, el( Button, { variant: 'link', onClick: () => setMore( ! more ), 'aria-expanded': more }, more ? __( 'Fewer options', 'axle-review' ) : __( 'More options', 'axle-review' ) ) ),
+						more &&
+							el(
+								'div',
+								{ className: 'axr-create__more' },
+								el( TextControl, { label: __( 'Only this person can open it', 'axle-review' ), help: __( 'Their email address. We email them the link, and they need a one-time code sent to this address to open it. Leave empty for anyone with the link.', 'axle-review' ), type: 'email', value: email, onChange: setEmail, __nextHasNoMarginBottom: true, __next40pxDefaultSize: true } ),
+								el( SelectControl, { label: __( 'Opens', 'axle-review' ), value: views, options: viewChoices, onChange: setViews, __nextHasNoMarginBottom: true, __next40pxDefaultSize: true } ),
+								el( TextControl, { label: __( 'Password (optional)', 'axle-review' ), type: 'password', autoComplete: 'new-password', value: password, onChange: setPassword, __nextHasNoMarginBottom: true, __next40pxDefaultSize: true } ),
+								el( ToggleControl, { label: __( 'Reviewer can leave notes', 'axle-review' ), checked: allowNotes, onChange: setAllowNotes, __nextHasNoMarginBottom: true } ),
+								el( ToggleControl, { label: __( 'Show them notes other reviewers left', 'axle-review' ), checked: shareNotes, onChange: setShareNotes, __nextHasNoMarginBottom: true } )
+							),
+						el(
+							'div',
+							{ className: 'axr-confirm-modal__actions' },
+							el( Button, { variant: 'tertiary', onClick: close }, __( 'Cancel', 'axle-review' ) ),
+							el( Button, { variant: 'primary', type: 'submit', className: 'axr-create__submit', isBusy: busy, disabled: busy }, __( 'Create link', 'axle-review' ) )
+						)
+					)
+				)
 		);
 	}
 
@@ -442,6 +481,224 @@
 		);
 	}
 
+	/* Changes to a live page */
+
+	/**
+	 * The "change to a live page" part of the panel. On a published post: ask for review of a change,
+	 * or follow the open one, or undo the last published change. On a working copy: what it is, whether
+	 * the gate holds it back, and Publish the change.
+	 */
+	function ChangesPanel( { postId, status, saving } ) {
+		const [ state, setState ] = useState( null );
+		const [ gate, setGate ] = useState( null );
+		const [ error, setError ] = useState( '' );
+		const [ busy, setBusy ] = useState( '' );
+		const [ confirm, setConfirm ] = useState( null );
+		const [ reason, setReason ] = useState( '' );
+
+		const load = useCallback( () => {
+			apiFetch( { path: addQueryArgs( '/axle-review/v1/changes', { post: postId } ) } )
+				.then( ( data ) => {
+					setState( data );
+					if ( 'copy' === data.role ) {
+						apiFetch( { path: addQueryArgs( '/axle-review/v1/gate', { post: postId } ) } ).then( setGate ).catch( () => setGate( null ) );
+					}
+				} )
+				.catch( () => setState( { role: 'none' } ) );
+		}, [ postId ] );
+		useEffect( load, [ load ] );
+
+		// The gate's answer can change after every save.
+		useEffect( () => {
+			if ( ! saving && state && 'copy' === state.role ) {
+				apiFetch( { path: addQueryArgs( '/axle-review/v1/gate', { post: postId } ) } ).then( setGate ).catch( () => {} );
+			}
+		}, [ saving ] ); // eslint-disable-line react-hooks/exhaustive-deps
+
+		if ( ! state || 'none' === state.role ) {
+			return null;
+		}
+
+		const fail = ( problem, fallback ) => {
+			setBusy( '' );
+			setError( ( problem && problem.message ) || fallback );
+			return problem;
+		};
+
+		const request = () => {
+			setBusy( 'request' );
+			setError( '' );
+			apiFetch( { path: '/axle-review/v1/changes', method: 'POST', data: { post: postId } } )
+				.then( ( result ) => {
+					doAction( 'axleReview.changeRequested', result );
+					window.location.assign( result.editUrl );
+				} )
+				.catch( ( problem ) => {
+					if ( problem && 'axle_review_change_exists' === problem.code && problem.data && problem.data.copy ) {
+						load();
+					}
+					fail( problem, __( 'The working copy could not be made.', 'axle-review' ) );
+				} );
+		};
+
+		const publish = ( overwrite ) => {
+			setBusy( 'publish' );
+			setError( '' );
+			setConfirm( null );
+			const save = select( 'core/editor' ).isEditedPostDirty() ? dispatch( 'core/editor' ).savePost() : Promise.resolve();
+			Promise.resolve( save )
+				.then( () => apiFetch( { path: '/axle-review/v1/changes/publish', method: 'POST', data: { post: postId, overwrite: !! overwrite } } ) )
+				.then( ( result ) => {
+					doAction( 'axleReview.changePublished', result );
+					window.location.assign( result.editUrl );
+				} )
+				.catch( ( problem ) => {
+					if ( problem && 'axle_review_live_changed' === problem.code ) {
+						setBusy( '' );
+						setConfirm( 'overwrite' );
+						return;
+					}
+					fail( problem, __( 'The change could not be published.', 'axle-review' ) );
+				} );
+		};
+
+		const override = () => {
+			setBusy( 'override' );
+			apiFetch( { path: '/axle-review/v1/gate/override', method: 'POST', data: { post: postId, reason } } )
+				.then( () => {
+					setBusy( '' );
+					publish( false );
+				} )
+				.catch( ( problem ) => fail( problem, __( 'The reason could not be saved.', 'axle-review' ) ) );
+		};
+
+		const discard = () => {
+			setBusy( 'discard' );
+			setConfirm( null );
+			apiFetch( { path: '/axle-review/v1/changes/discard', method: 'POST', data: { post: postId } } )
+				.then( ( result ) => window.location.assign( result.editUrl || config.linksUrl ) )
+				.catch( ( problem ) => fail( problem, __( 'The working copy could not be discarded.', 'axle-review' ) ) );
+		};
+
+		const undo = ( overwrite ) => {
+			setBusy( 'undo' );
+			setError( '' );
+			setConfirm( null );
+			apiFetch( { path: '/axle-review/v1/changes/undo', method: 'POST', data: { post: postId, overwrite: !! overwrite } } )
+				.then( () => window.location.reload() )
+				.catch( ( problem ) => {
+					if ( problem && 'axle_review_undo_edited' === problem.code ) {
+						setBusy( '' );
+						setConfirm( 'undo-edited' );
+						return;
+					}
+					fail( problem, __( 'The change could not be undone.', 'axle-review' ) );
+				} );
+		};
+
+		const notice = error && el( Notice, { status: 'error', isDismissible: false }, error );
+		const blocked = gate && gate.enabled && gate.blocks;
+
+		if ( 'copy' === state.role ) {
+			const live = state.original;
+			return el(
+				Fragment,
+				null,
+				el(
+					'div',
+					{ className: 'axr-change' },
+					el( 'p', { className: 'axr-change__text' }, el( 'strong', null, live && live.title ? sprintf( /* translators: %s: title of the live page. */ __( 'A change to "%s"', 'axle-review' ), live.title ) : __( 'A change to a live page', 'axle-review' ) ) ),
+					el( 'p', { className: 'axr-muted' }, __( 'The live page does not change until you publish the change. Share this copy with a review link first.', 'axle-review' ) ),
+					live && live.url && el( 'p', null, el( 'a', { href: live.url, target: '_blank', rel: 'noopener noreferrer' }, __( 'View the live page', 'axle-review' ) ) ),
+					state.liveChanged && el( Notice, { status: 'warning', isDismissible: false }, __( 'The live page was edited after this copy was made. Publishing the change replaces those edits. They stay in the undo.', 'axle-review' ) ),
+					notice,
+					blocked && gate.message && el( Notice, { status: 'warning', isDismissible: false }, gate.message ),
+					blocked &&
+						gate.canOverride &&
+						! gate.override &&
+						el(
+							'div',
+							{ className: 'axr-override' },
+							el( TextareaControl, { label: __( 'Reason to publish anyway', 'axle-review' ), value: reason, onChange: setReason, __nextHasNoMarginBottom: true } ),
+							el( Button, { variant: 'secondary', onClick: override, disabled: !! busy || ! reason.trim(), isBusy: 'override' === busy }, __( 'Publish the change anyway', 'axle-review' ) )
+						),
+					el(
+						'p',
+						{ className: 'axr-change__actions' },
+						state.canPublish && ( ! blocked || gate.override ) && el( Button, { variant: 'primary', className: 'axr-change__publish', onClick: () => setConfirm( 'publish' ), disabled: !! busy, isBusy: 'publish' === busy }, __( 'Publish the change', 'axle-review' ) ),
+						el( Button, { variant: 'link', isDestructive: true, onClick: () => setConfirm( 'discard' ), disabled: !! busy }, __( 'Discard this copy', 'axle-review' ) )
+					)
+				),
+				'publish' === confirm &&
+					el( Confirm, {
+						title: __( 'Publish the change', 'axle-review' ),
+						message: live && live.title ? sprintf( /* translators: %s: title of the live page. */ __( 'The live page "%s" is replaced by this copy right away, with its address, comments and categories kept. The version that is live now is kept, and you can undo this. This copy is deleted.', 'axle-review' ), live.title ) : __( 'The live page is replaced by this copy right away, with its address, comments and categories kept. The version that is live now is kept, and you can undo this. This copy is deleted.', 'axle-review' ),
+						label: __( 'Publish the change', 'axle-review' ),
+						onConfirm: () => publish( false ),
+						onCancel: () => setConfirm( null ),
+					} ),
+				'overwrite' === confirm &&
+					el( Confirm, {
+						title: __( 'Replace edits to the live page', 'axle-review' ),
+						message: __( 'The live page was edited after this copy was made. Publishing the change replaces those edits with this copy. They stay in the undo.', 'axle-review' ),
+						label: __( 'Publish and replace them', 'axle-review' ),
+						onConfirm: () => publish( true ),
+						onCancel: () => setConfirm( null ),
+					} ),
+				'discard' === confirm &&
+					el( Confirm, {
+						title: __( 'Discard this copy', 'axle-review' ),
+						message: __( 'The copy, its review links and its notes are deleted. The live page is not touched. This cannot be undone.', 'axle-review' ),
+						label: __( 'Discard copy', 'axle-review' ),
+						onConfirm: discard,
+						onCancel: () => setConfirm( null ),
+					} )
+			);
+		}
+
+		// A live post.
+		return el(
+			Fragment,
+			null,
+			el(
+				'div',
+				{ className: 'axr-change' },
+				notice,
+				state.copy
+					? el(
+							Fragment,
+							null,
+							el( 'p', { className: 'axr-change__text' }, el( 'strong', null, __( 'A change to this page is in review.', 'axle-review' ) ) ),
+							state.copy.editUrl ? el( 'p', null, el( 'a', { href: state.copy.editUrl }, __( 'Open the working copy', 'axle-review' ) ) ) : el( 'p', { className: 'axr-muted' }, __( 'Someone else is working on it.', 'axle-review' ) )
+					  )
+					: state.canRequest &&
+					  el(
+							Fragment,
+							null,
+							el( 'p', { className: 'axr-muted' }, __( 'This page is live, so it has no review links. To have a change reviewed first, work on a copy: reviewers see what changed, and one click puts it live.', 'axle-review' ) ),
+							el( Button, { variant: 'secondary', className: 'axr-change__request', onClick: request, disabled: !! busy, isBusy: 'request' === busy }, __( 'Ask for review of a change', 'axle-review' ) )
+					  ),
+				state.undo && state.undo.available && el( 'p', { className: 'axr-change__undo' }, __( 'A reviewed change went live', 'axle-review' ), ' ', el( Time, { iso: state.undo.time } ), '. ', el( Button, { variant: 'link', onClick: () => ( state.undo.edited ? setConfirm( 'undo-edited' ) : setConfirm( 'undo' ) ), disabled: !! busy }, __( 'Undo that change', 'axle-review' ) ) )
+			),
+			'undo' === confirm &&
+				el( Confirm, {
+					title: __( 'Undo the last change', 'axle-review' ),
+					message: __( 'This page goes back to how it was before the last reviewed change: its text, excerpt, custom fields and featured image. Notes stay.', 'axle-review' ),
+					label: __( 'Undo the change', 'axle-review' ),
+					onConfirm: () => undo( false ),
+					onCancel: () => setConfirm( null ),
+				} ),
+			'undo-edited' === confirm &&
+				el( Confirm, {
+					title: __( 'Undo the last change', 'axle-review' ),
+					message: __( 'This page was edited after the change went live. Undoing the change also removes those edits. Notes stay.', 'axle-review' ),
+					label: __( 'Undo and remove those edits', 'axle-review' ),
+					onConfirm: () => undo( true ),
+					onCancel: () => setConfirm( null ),
+				} )
+		);
+	}
+
 	/* Share for review */
 
 	function SharePanel() {
@@ -461,7 +718,11 @@
 				return;
 			}
 			apiFetch( { path: addQueryArgs( '/axle-review/v1/links', { post: postId } ) } )
-				.then( setData )
+				.then( ( result ) => {
+					// Only a post with a live link can get reviewer notes, so only then does the editor ask for them.
+					window.axleReviewEditor.live = ( result.links || [] ).some( ( link ) => 'active' === link.status || 'used' === link.status );
+					setData( result );
+				} )
 				.catch( ( problem ) => setError( problem.message || __( 'The links could not be loaded. Reload the editor to try again.', 'axle-review' ) ) );
 		}, [ postId, isNew ] );
 
@@ -482,7 +743,12 @@
 		if ( isNew ) {
 			body = el( 'p', null, __( 'Save the draft first, then share it.', 'axle-review' ) );
 		} else if ( [ 'publish', 'private', 'trash' ].includes( status ) ) {
-			body = el( 'p', null, __( 'Review links stop working once a post is published, private or in the trash.', 'axle-review' ) );
+			body = el(
+				Fragment,
+				null,
+				'trash' !== status && el( ChangesPanel, { postId, status, saving } ),
+				el( 'p', { className: 'axr-muted' }, __( 'Review links stop working once a post is published, private or in the trash.', 'axle-review' ) )
+			);
 		} else if ( error ) {
 			body = el( Notice, { status: 'error', isDismissible: false }, error );
 		} else if ( ! data ) {
@@ -506,6 +772,7 @@
 				Fragment,
 				null,
 				data.paused && el( Notice, { status: 'warning', isDismissible: false }, __( 'Review links are paused on this site. Nobody can open them right now.', 'axle-review' ) ),
+				el( ChangesPanel, { postId, status, saving } ),
 				el( ReviewState, {
 					postId,
 					refreshKey: stateKey,
@@ -528,7 +795,6 @@
 						onConfirm: revoke,
 						onCancel: () => setRevoking( null ),
 					} ),
-				el( 'h3', { className: 'axr-create__title' }, __( 'New link', 'axle-review' ) ),
 				el( CreateForm, {
 					postId,
 					defaults: data.default,
@@ -627,7 +893,17 @@
 		}
 	}, 500 );
 
+	// One check after load, then again only while the post has a live link and the tab is visible.
 	window.setTimeout( attachPending, 1500 );
-	window.setInterval( attachPending, Math.max( 5, Number( config.poll ) || 20 ) * 1000 );
+	window.setInterval( () => {
+		if ( window.axleReviewEditor.live && 'hidden' !== document.visibilityState ) {
+			attachPending();
+		}
+	}, Math.max( 5, Number( config.poll ) || 20 ) * 1000 );
+	document.addEventListener( 'visibilitychange', () => {
+		if ( window.axleReviewEditor.live && 'visible' === document.visibilityState ) {
+			attachPending();
+		}
+	} );
 	window.axleReviewEditor.attachPending = attachPending;
 } )( window.wp, window.axleReviewEditor );

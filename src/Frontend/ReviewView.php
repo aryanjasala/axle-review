@@ -8,6 +8,7 @@
 namespace AryanX\Axle\Review\Frontend;
 
 use AryanX\Axle\Review\Access;
+use AryanX\Axle\Review\Admin\AxleUi;
 use AryanX\Axle\Review\Approvals;
 use AryanX\Axle\Review\Anchor;
 use AryanX\Axle\Review\Events;
@@ -34,6 +35,11 @@ defined( 'ABSPATH' ) || exit;
 final class ReviewView implements Service {
 
 	public const QUERY_VAR = 'axle_review';
+
+	/**
+	 * The query argument that shows step 2 of the email-code gate (the code field).
+	 */
+	public const SENT_VAR = 'axr_sent';
 
 	/**
 	 * Links.
@@ -521,29 +527,47 @@ final class ReviewView implements Service {
 
 		$error = '';
 		$note  = '';
+		$step2 = false;
+
+		if ( 'code' === $this->state ) {
+			// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- A display switch on a logged-out page; it shows the code field and changes nothing.
+			$step2 = isset( $_GET[ self::SENT_VAR ] );
+			if ( $step2 ) {
+				$note = __( 'We sent a code. It works for a few minutes.', 'axle-review' );
+			}
+		}
 
 		// phpcs:ignore WordPress.Security.NonceVerification.Missing -- Logged-out form; checked with its own signed token below.
 		$action = isset( $_POST['axr_action'] ) ? sanitize_key( wp_unslash( $_POST['axr_action'] ) ) : '';
 		if ( $this->link && '' !== $action && in_array( $this->state, array( 'code', 'password' ), true ) ) {
+			// This token is CSRF protection for logged-out visitors, who have no nonce: it is signed, bound to this link, and valid for two days.
 			// phpcs:ignore WordPress.Security.NonceVerification.Missing -- Same.
 			$token = isset( $_POST['axr_form'] ) ? sanitize_text_field( wp_unslash( $_POST['axr_form'] ) ) : '';
 			if ( ! Access::check_form_token( (int) $this->link['id'], $token ) ) {
 				$error = __( 'The form expired. Try again.', 'axle-review' );
+				$step2 = 'verify_code' === $action;
 			} else {
 				$result = $this->handle_form( $action );
 				if ( true === $result ) {
 					wp_safe_redirect( Links::url( $this->token ) );
 					exit;
 				}
+				if ( self::SENT_VAR === $result ) {
+					// Post, redirect, get: a reload of step 2 must not send another email.
+					wp_safe_redirect( add_query_arg( self::SENT_VAR, '1', Links::url( $this->token ) ) );
+					exit;
+				}
+				$step2 = 'verify_code' === $action || 'send_code' === $action;
 				if ( is_wp_error( $result ) ) {
 					$error = $result->get_error_message();
+					$note  = '';
 				} else {
 					$note = (string) $result;
 				}
 			}
 		}
 
-		$this->render_gate( $error, $note );
+		$this->render_gate( $error, $note, $step2 );
 		exit;
 	}
 
@@ -551,14 +575,14 @@ final class ReviewView implements Service {
 	 * Handles a gate form.
 	 *
 	 * @param string $action send_code, verify_code or password.
-	 * @return true|string|\WP_Error True to redirect, a message to show, or an error.
+	 * @return true|string|\WP_Error True to redirect to the page, SENT_VAR to redirect to step 2, or an error.
 	 */
 	private function handle_form( string $action ) {
 		$link = (array) $this->link;
 
 		if ( 'send_code' === $action && 'code' === $this->state ) {
 			$sent = $this->access->send_code( $link );
-			return is_wp_error( $sent ) ? $sent : __( 'We sent a code to the email address this link is for. It works for a few minutes.', 'axle-review' );
+			return is_wp_error( $sent ) ? $sent : self::SENT_VAR;
 		}
 
 		if ( 'verify_code' === $action && 'code' === $this->state ) {
@@ -646,96 +670,154 @@ final class ReviewView implements Service {
 	}
 
 	/**
-	 * Prints a gate or refusal page.
+	 * Prints a gate or refusal page, in WordPress's own login-screen look.
 	 *
 	 * @param string $error Error to show.
 	 * @param string $note  Notice to show.
+	 * @param bool   $step2 Whether the code field is shown (a code was just sent, or a wrong one typed).
 	 */
-	private function render_gate( string $error, string $note ): void {
-		$state = $this->state;
-		status_header( 'denied' === $state ? 404 : 200 );
-		header( 'Content-Type: text/html; charset=' . get_option( 'blog_charset' ) );
-
-		wp_register_style( 'axle-review-gate', plugins_url( 'assets/gate.css', PLUGIN_FILE ), array(), VERSION );
-
-		$site    = (string) get_bloginfo( 'name' );
+	private function render_gate( string $error, string $note, bool $step2 = false ): void {
+		$state   = $this->state;
 		$link_id = $this->link ? (int) $this->link['id'] : 0;
 		$action  = Links::url( $this->token );
 		$title   = __( 'Review link', 'axle-review' );
+		$body    = '';
+		$links   = array();
+
 		if ( 'code' === $state ) {
-			$title = __( 'Check your email', 'axle-review' );
+			$title = $step2 ? __( 'Enter your code', 'axle-review' ) : __( 'Check your email', 'axle-review' );
+			$body  = $step2 ? $this->code_form( $action, $link_id ) : $this->send_form( $action, $link_id );
 		} elseif ( 'password' === $state ) {
 			$title = __( 'Enter the password', 'axle-review' );
+			$body  = $this->password_form( $action, $link_id );
 		} elseif ( 'denied' === $state ) {
 			$title = __( 'This link does not open', 'axle-review' );
+			$error = '' === $error ? self::denied_message( $this->reason ) : $error;
 		}
 
-		$this->print_gate_page( $state, $error, $note, $site, $link_id, $action, $title );
+		$args = array(
+			'title'  => $title,
+			'body'   => $body,
+			'links'  => $links,
+			'status' => 'denied' === $state ? 404 : 200,
+		);
+		if ( '' !== $error ) {
+			$args['error'] = esc_html( $error );
+		}
+		if ( '' !== $note ) {
+			$args['message'] = esc_html( $note );
+		}
+
+		/**
+		 * Filters what the code, password and refused-link page shows, before it
+		 * is printed with AxleUi::guest_page().
+		 *
+		 * @param array  $args  title, message, error, body (HTML), links, status.
+		 * @param string $state code, password or denied.
+		 */
+		$args = (array) apply_filters( 'axle_review_gate_page', $args, $state );
+
+		AxleUi::guest_page( $args );
 	}
 
 	/**
-	 * The page for the email code, the password, and refused links.
+	 * The email address of the link with its middle hidden, such as p•••@acme.com.
 	 *
-	 * @param string $state   code, password or denied.
-	 * @param string $error   Error to show.
-	 * @param string $note    Notice to show.
-	 * @param string $site    Site name.
-	 * @param int    $link_id Link ID, 0 when unknown.
-	 * @param string $action  Form action URL.
-	 * @param string $title   Page title.
+	 * @param string $email Address.
+	 * @return string
 	 */
-	private function print_gate_page( string $state, string $error, string $note, string $site, int $link_id, string $action, string $title ): void {
-		?><!DOCTYPE html>
-<html <?php language_attributes(); ?>>
-<head>
-<meta charset="<?php bloginfo( 'charset' ); ?>">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="robots" content="noindex, nofollow">
-<title><?php echo esc_html( $title . ' | ' . $site ); ?></title>
-		<?php wp_print_styles( array( 'axle-review-gate' ) ); ?>
-</head>
-<body class="axr-gate-body">
-<main class="axr-gate" id="axr-gate">
-	<p class="axr-gate__site"><?php echo esc_html( $site ); ?></p>
-	<h1 class="axr-gate__title"><?php echo esc_html( $title ); ?></h1>
+	public static function mask_email( string $email ): string {
+		$at = strrpos( $email, '@' );
+		if ( false === $at || $at < 1 ) {
+			return '';
+		}
 
-		<?php if ( '' !== $error ) : ?>
-		<p class="axr-gate__error" role="alert"><?php echo esc_html( $error ); ?></p>
-	<?php endif; ?>
-		<?php if ( '' !== $note ) : ?>
-		<p class="axr-gate__note" role="status"><?php echo esc_html( $note ); ?></p>
-	<?php endif; ?>
+		return mb_substr( $email, 0, 1 ) . '•••' . substr( $email, $at );
+	}
 
-		<?php if ( 'denied' === $state ) : ?>
-		<p class="axr-gate__text"><?php echo esc_html( self::denied_message( $this->reason ) ); ?></p>
-	<?php elseif ( 'code' === $state ) : ?>
-		<p class="axr-gate__text"><?php esc_html_e( 'This link is for one email address. Get a one-time code sent there, then enter it here.', 'axle-review' ); ?></p>
-		<form method="post" action="<?php echo esc_url( $action ); ?>" class="axr-gate__form">
+	/**
+	 * Step 1: one button that sends the code.
+	 *
+	 * @param string $action  Form action URL.
+	 * @param int    $link_id Link ID.
+	 * @return string HTML.
+	 */
+	private function send_form( string $action, int $link_id ): string {
+		$masked = self::mask_email( (string) ( $this->link['email'] ?? '' ) );
+
+		ob_start();
+		?>
+		<p class="axr-gate__text">
+		<?php
+		echo esc_html(
+			'' !== $masked
+				/* translators: %s: the address with its middle hidden, such as p•••@acme.com. */
+				? sprintf( __( 'This link is for one email address. Email me a code at %s to open it.', 'axle-review' ), $masked )
+				: __( 'This link is for one email address. We will email it a one-time code.', 'axle-review' )
+		);
+		?>
+		</p>
+		<form method="post" action="<?php echo esc_url( $action ); ?>" id="axr-send-form">
 			<input type="hidden" name="axr_action" value="send_code">
 			<input type="hidden" name="axr_form" value="<?php echo esc_attr( Access::form_token( $link_id ) ); ?>">
-			<button type="submit" class="axr-gate__button axr-gate__button--secondary"><?php esc_html_e( 'Email me a code', 'axle-review' ); ?></button>
+			<p class="submit"><button type="submit" class="button button-primary button-large"><?php esc_html_e( 'Email me a code', 'axle-review' ); ?></button></p>
 		</form>
-		<form method="post" action="<?php echo esc_url( $action ); ?>" class="axr-gate__form">
+		<?php
+		return (string) ob_get_clean();
+	}
+
+	/**
+	 * Step 2: the code field, and "Send a new code".
+	 *
+	 * @param string $action  Form action URL.
+	 * @param int    $link_id Link ID.
+	 * @return string HTML.
+	 */
+	private function code_form( string $action, int $link_id ): string {
+		$length = Access::code_rules()['length'];
+
+		ob_start();
+		?>
+		<form method="post" action="<?php echo esc_url( $action ); ?>" id="axr-code-form">
 			<input type="hidden" name="axr_action" value="verify_code">
 			<input type="hidden" name="axr_form" value="<?php echo esc_attr( Access::form_token( $link_id ) ); ?>">
-			<label for="axr-code" class="axr-gate__label"><?php esc_html_e( 'Code', 'axle-review' ); ?></label>
-			<input type="text" id="axr-code" name="axr_code" inputmode="numeric" autocomplete="one-time-code" maxlength="10" class="axr-gate__input" required>
-			<button type="submit" class="axr-gate__button"><?php esc_html_e( 'Open the page', 'axle-review' ); ?></button>
+			<p>
+				<label for="axr-code"><?php esc_html_e( 'Code', 'axle-review' ); ?></label>
+				<input type="text" id="axr-code" name="axr_code" class="input" inputmode="numeric" pattern="[0-9]{<?php echo (int) $length; ?>}" maxlength="<?php echo (int) $length; ?>" autocomplete="one-time-code" spellcheck="false" required autofocus>
+			</p>
+			<p class="submit"><button type="submit" class="button button-primary button-large"><?php esc_html_e( 'Open the page', 'axle-review' ); ?></button></p>
 		</form>
-	<?php elseif ( 'password' === $state ) : ?>
+		<form method="post" action="<?php echo esc_url( $action ); ?>" id="axr-resend-form">
+			<input type="hidden" name="axr_action" value="send_code">
+			<input type="hidden" name="axr_form" value="<?php echo esc_attr( Access::form_token( $link_id ) ); ?>">
+			<p style="margin-top:16px"><button type="submit" class="button button-large"><?php esc_html_e( 'Send a new code', 'axle-review' ); ?></button></p>
+		</form>
+		<?php
+		return (string) ob_get_clean();
+	}
+
+	/**
+	 * The password form.
+	 *
+	 * @param string $action  Form action URL.
+	 * @param int    $link_id Link ID.
+	 * @return string HTML.
+	 */
+	private function password_form( string $action, int $link_id ): string {
+		ob_start();
+		?>
 		<p class="axr-gate__text"><?php esc_html_e( 'This link has a password. The person who sent it can tell you what it is.', 'axle-review' ); ?></p>
-		<form method="post" action="<?php echo esc_url( $action ); ?>" class="axr-gate__form">
+		<form method="post" action="<?php echo esc_url( $action ); ?>" id="axr-password-form">
 			<input type="hidden" name="axr_action" value="password">
 			<input type="hidden" name="axr_form" value="<?php echo esc_attr( Access::form_token( $link_id ) ); ?>">
-			<label for="axr-password" class="axr-gate__label"><?php esc_html_e( 'Password', 'axle-review' ); ?></label>
-			<input type="password" id="axr-password" name="axr_password" autocomplete="current-password" class="axr-gate__input" required>
-			<button type="submit" class="axr-gate__button"><?php esc_html_e( 'Open the page', 'axle-review' ); ?></button>
+			<p>
+				<label for="axr-password"><?php esc_html_e( 'Password', 'axle-review' ); ?></label>
+				<input type="password" id="axr-password" name="axr_password" class="input" autocomplete="current-password" required autofocus>
+			</p>
+			<p class="submit"><button type="submit" class="button button-primary button-large"><?php esc_html_e( 'Open the page', 'axle-review' ); ?></button></p>
 		</form>
-	<?php endif; ?>
-</main>
-</body>
-</html>
 		<?php
+		return (string) ob_get_clean();
 	}
 
 	/**
@@ -886,6 +968,7 @@ final class ReviewView implements Service {
 			'since'     => '',
 			'changes'   => null,
 			'revisions' => false,
+			'live'      => false,
 		);
 		$summary = '';
 
@@ -895,7 +978,13 @@ final class ReviewView implements Service {
 			$days = $time && time() - $time > 5 * DAY_IN_SECONDS ? wp_date( (string) get_option( 'date_format' ), $time ) : $day;
 			$n    = (int) $visit['changes']['count'];
 
-			$summary = '' === $days
+			$summary = ! empty( $visit['live'] )
+				? sprintf(
+					/* translators: %d: number of changes. */
+					_n( '%d change from the live page', '%d changes from the live page', $n, 'axle-review' ),
+					$n
+				)
+				: ( '' === $days
 				? sprintf(
 					/* translators: %d: number of changes. */
 					_n( '%d change since your last visit', '%d changes since your last visit', $n, 'axle-review' ),
@@ -906,7 +995,7 @@ final class ReviewView implements Service {
 					_n( '%1$d change since your visit on %2$s', '%1$d changes since your visit on %2$s', $n, 'axle-review' ),
 					$n,
 					$days
-				);
+				) );
 		}
 
 		return array(

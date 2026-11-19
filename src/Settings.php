@@ -151,14 +151,14 @@ final class Settings {
 	}
 
 	/**
-	 * Who changes the settings, sees Tools > Review Links for every post and
+	 * Who changes the settings, sees Dashboard > Notes > Review links for every post and
 	 * pauses links.
 	 *
 	 * @return string
 	 */
 	public static function settings_capability(): string {
 		/**
-		 * Filters the capability for the settings, Tools > Review Links and pausing links.
+		 * Filters the capability for the settings, Dashboard > Notes > Review links and pausing links.
 		 *
 		 * @param string $capability Default manage_options.
 		 */

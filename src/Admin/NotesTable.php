@@ -93,6 +93,21 @@ final class NotesTable extends \WP_List_Table {
 	}
 
 	/**
+	 * The filters, next to Bulk actions as on Posts and Comments.
+	 *
+	 * @param string $which top or bottom.
+	 */
+	protected function extra_tablenav( $which ): void {
+		if ( 'top' !== $which ) {
+			return;
+		}
+
+		echo '<div class="alignleft actions">';
+		Inbox::filter_controls( $this->filters );
+		echo '</div>';
+	}
+
+	/**
 	 * Loads the rows.
 	 */
 	public function prepare_items(): void {

@@ -184,25 +184,30 @@ final class Attacher implements Service {
 		$this->writing = $post_id;
 
 		// A guest request has no user, so kses would strip what editors may write (embeds, Custom HTML).
+		// Turning it off is safe here: the only change is the integer note ID in a block's
+		// metadata.noteId. Nothing a guest typed ever enters post_content (note text is a comment),
+		// and $content is the post's own stored content. The filters go back on in finally, even
+		// if wp_update_post() throws, so the rest of the request is filtered as usual.
 		$kses = false !== has_filter( 'content_save_pre', 'wp_filter_post_kses' );
 		if ( $kses ) {
 			kses_remove_filters();
 		}
 
-		wp_update_post(
-			wp_slash(
-				array(
-					'ID'           => $post_id,
-					'post_content' => $content,
+		try {
+			wp_update_post(
+				wp_slash(
+					array(
+						'ID'           => $post_id,
+						'post_content' => $content,
+					)
 				)
-			)
-		);
-
-		if ( $kses ) {
-			kses_init_filters();
+			);
+		} finally {
+			if ( $kses ) {
+				kses_init_filters();
+			}
+			$this->writing = 0;
 		}
-
-		$this->writing = 0;
 	}
 
 	/**

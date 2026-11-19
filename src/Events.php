@@ -15,7 +15,7 @@ defined( 'ABSPATH' ) || exit;
  */
 final class Events {
 
-	public const TYPES = array( 'open', 'code_sent', 'code_ok', 'code_fail', 'password_fail', 'note', 'reply_seen', 'denied', 'decision' );
+	public const TYPES = array( 'open', 'code_sent', 'code_ok', 'code_fail', 'password_fail', 'guess_alert', 'note', 'reply_seen', 'denied', 'decision' );
 
 	/**
 	 * Adds an event.

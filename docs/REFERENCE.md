@@ -8,15 +8,17 @@ Each link has:
 
 - an expiry, from one hour to 30 days (default 7 days, from Settings > Writing > Review)
 - a view limit: 0 is unlimited, 1 opens once. A view is a new session, counted atomically, so two people opening a view-once link at the same moment cannot both get in. A session lasts 12 hours or until the link expires, so the reviewer can come back to it
-- an optional email lock: the reviewer asks for a one-time code (6 digits, valid 10 minutes) sent to that address, then enters it. A forwarded link still asks for the code
+- an optional email lock ("Only this person can open it"): the page shows the address with its middle hidden (`p•••@acme.com`) and one button. After the reviewer asks for a code (6 digits, valid 10 minutes), step 2 shows the code field and **Send a new code**. The last two codes work, so a second click does not make the first email useless. A forwarded link still asks for the code. In the editor and on the Review links view, the one email field also sends the link to that address
 - an optional password, stored with `wp_hash_password()`
 - whether the reviewer may leave notes, and whether they see notes other reviewers left
 
-Five wrong codes or passwords lock the link, and the visitor's IP address, out for 15 minutes. At most five codes are sent per link in 15 minutes.
+Five wrong codes or passwords lock the visitor's IP address out for 15 minutes. A wrong try never lengthens a code's life, and five wrong tries drop the codes, so the reviewer asks for a new one. The link as a whole only locks after ten times that many failures from all visitors together (`axle_review_link_fail_ceiling`), so a forwarded link cannot lock the real reviewer out. When one visitor reaches the limit, the person who made the link gets an email (at most one an hour) with the address of the Review links view, where they can Revoke the link or Ask again. At most five codes are sent per link in 15 minutes.
 
-A link stops working when it expires, reaches its view limit (open sessions keep working), is revoked, when its post is published, made private or trashed (`axle_review_kill_link_on_status`), when the post is deleted (its links and their activity are deleted too), or when the user who made it is deleted. **Pause all links** on Tools > Review Links turns every link off until it is resumed; on multisite a network admin can pause every site from Network Admin > Settings > Review Links.
+A link stops working when it expires, reaches its view limit (open sessions keep working), is revoked, when its post is published, made private or trashed (`axle_review_kill_link_on_status`), when the post is deleted (its links and their activity are deleted too), or when the user who made it is deleted. **Pause all links** on the Review links view of Dashboard > Notes turns every link off until it is resumed; on multisite a network admin can pause every site from Network Admin > Settings > Review Links.
 
-A link that does not open shows a small page with the reason (expired, used, revoked, paused) and HTTP status 404. An unknown token gets the same page with a generic message.
+The code, password and refused-link pages are WordPress's own login screen (the `login` stylesheet, `body.login`, the site icon and name, core buttons), built with the shared `guest_page()`. A link that does not open shows the reason (expired, used, revoked, paused) in the red notice and HTTP status 404. An unknown token gets the same page with a generic message. The forms are protected by a signed token tied to the link (the CSRF protection for logged-out visitors, who have no nonce).
+
+The gate sets two cookies: `axr_<link id>` (the session, HttpOnly, SameSite=Lax, up to 12 hours) and `axr_step_<link id>` (15 minutes, between the code and the password). Both are named in the suggested privacy text.
 
 ## The review page
 
@@ -31,11 +33,7 @@ Comments are closed on the review page. A post with a post password still asks f
 
 The page shows the draft and nothing else about the site. There is no admin bar, even for a signed-in visitor. Every query other than the main one (widgets, query loops, shortcodes) only sees public posts and attachments, so a block that lists posts cannot list other drafts. The head carries no shortlink, canonical link, REST or oEmbed discovery link, which would give away the draft's address.
 
-A bar across the top of the page, in the size and colours of the WordPress admin bar, has **Leave a note**, **View notes I left**, **Approve** and **Request changes** (see Sign-off below). In note mode every block of the post is outlined: click one, or Tab to it and press Enter, to open the note form next to it. Escape closes the form, then leaves note mode. Text selected in the block travels with the note as a quote. The reviewer's name is kept for the browser session.
-
-**View notes I left** opens a sidebar with the reviewer's notes and the replies, laid out like Notes in the editor: one card for each thread, with resolved threads under their own heading. On a wide screen the sidebar sits beside the page; on a phone it covers it. **Approve** and **Request changes** open a dialog over the page.
-
-Everything the reviewer interface draws is inside one `#axr-root` element. Its styles start from the browser's defaults, so the theme's styles for buttons, fields and headings do not reach it. Messages such as "Note sent" appear in the bottom corner and are announced to screen readers.
+The toolbar has **Leave a note**, **View notes I left**, **Approve** and **Request changes** (see Sign-off below). In note mode every block of the post is outlined: click one, or Tab to it and press Enter, to open the note popover. Escape closes the popover, then leaves note mode. Text selected in the block travels with the note as a quote. The reviewer's name is kept for the browser session.
 
 The review render marks each block of the post with `data-axr-block` (its path), `data-axr-hash` (a fingerprint of its name and text) and `data-axr-name` (the block name), using `WP_HTML_Tag_Processor` on the block's first tag.
 
@@ -83,9 +81,30 @@ On WordPress 7.1 and later `noteId` is an array, as core writes it; on 6.9 and 7
 
 Editors reply, resolve and reopen reviewer notes in the Notes sidebar like any note. The reviewer sees replies to their own threads (same session, or the same verified email on another link) on their next visit, and can reply in them. They do not see other reviewers' threads unless the link allows it, and never editors' own notes.
 
+## Review a change to a live page
+
+A published post has no review links: they stop when it is published. To review a change to a live page, choose **Ask for review of a change** in the editor's Share for review panel (or `wp axle-review change request <post>`). That makes a **working copy**: a draft of the same post type with the live post's title, content, excerpt and meta, and no Notes. It points to the live post (post meta `_axr_change_of` on the copy, `_axr_change_copy` on the live post). A live post has one open copy.
+
+Review links, Notes, approvals and the publish gate work on the copy as on any draft. A reviewer who opens a link to the copy sees a bar such as "3 changes from the live page", with the same Next change and Show previous text as for a return visit. The baseline is the live post (after **Ask again**, it is the reviewer's answer). The posts list marks both posts "Change in review".
+
+A copy cannot be published directly: a save that sets `publish` or `future` stays a draft, and REST returns `axle_review_change_use_merge`, HTTP 409. **Publish the change** (editor panel, `POST /changes/publish`, `wp axle-review change publish <copy>`, the `publish-change` ability) does this, after the gate, when the copy has its approvals and no open notes:
+
+1. A core revision of the live post is saved, and its title, content, excerpt and meta are stored as the Undo record.
+2. The live post gets the copy's title, content and excerpt. It keeps its ID, URL, slug, date, author, status, comments and terms. Notes that were on unchanged blocks of the live post stay on those blocks.
+3. Post meta moves from the copy to the live post, key by key: keys the copy lacks are removed, so the live post ends up like the copy. The featured image is meta, so it moves too. Keys such as `_edit_lock`, `_wp_old_slug`, `_oembed_*` and `_axr_*` stay out (`axle_review_change_skip_meta`).
+4. The copy's Notes (threads, replies, resolved ones) move to the live post.
+5. A resolved note on the live post records who published the change and how many reviewers approved it (not their names).
+6. The copy and its review links are deleted.
+
+If the live post was edited after the copy was made, publishing asks first (`axle_review_live_changed`, HTTP 409). Repeat with `overwrite` (the editor shows a confirm step) and those edits are replaced; they stay in the Undo. Only one merge runs at a time for a post.
+
+**Undo that change** (editor panel on the live post, `POST /changes/undo`, `wp axle-review change undo <post>`, the `undo-change` ability) puts back the title, content, excerpt and meta from before the merge. Notes stay where they are. If the post was edited since the merge, Undo asks first (`axle_review_undo_edited`). **Discard this copy** deletes the copy without touching the live post.
+
+Who may do what is checked on the post each action touches: asking for review needs the share capability on the live post and the post type's `create_posts`; publishing needs `edit_post` on the copy and the live post and the type's `publish_posts`; discarding needs `delete_post` on the copy; undoing needs `edit_post` on the live post and `publish_posts`. A person who cannot edit a post is not told its title. Terms stay with the live post unless `axle_review_change_merge_terms` returns true.
+
 ## Dashboard > Notes
 
-Needs `edit_posts` (`axle_review_inbox_capability`). The list and its counts only cover posts the user may edit: for each post type, every post when they can edit other people's posts of that type, only their own posts when they can only edit their own, and none when they cannot edit that type at all. Each row is still checked with `edit_post` on its post. A `post_id` in the address for a post the user cannot edit is ignored.
+One menu item holds notes and review links. The views are core-style links above the list, with counts. Needs `edit_posts` (`axle_review_inbox_capability`). Each row is checked with `edit_post` on its post; users without `edit_others_posts` see notes on their own posts.
 
 | View | Lists |
 | --- | --- |
@@ -95,8 +114,9 @@ Needs `edit_posts` (`axle_review_inbox_capability`). The list and its counts onl
 | From reviewers | Notes left through review links |
 | Resolved | Resolved top-level notes |
 | All | Open and resolved |
+| Review links | The links you may manage, with their status, views, notes and answer. Create a link for a post, Revoke (one or in bulk), Ask again, see activity, Pause all links. Tools > Review Links redirects here |
 
-Filters: post type, note author, date, and post (from the Notes column). Each row: the note, its author (users by name, reviewers as "Guest: name"), the post with a link that opens the editor on that note, the block type, age, replies and status. Row actions: Open in editor, Resolve, Reopen, and an inline reply. Bulk Resolve and Reopen.
+Filters (next to Bulk actions, as on Comments): post type, note author and date, and a post (from the Notes column). The Review links view filters by status and creator. Each row: the note, its author (users by name, reviewers as "Guest: name"), the post with a link that opens the editor on that note, the block type, age, replies and status. Row actions: Open in editor, Resolve, Reopen, and an inline reply. Bulk Resolve and Reopen.
 
 Resolve and reopen write what the editor writes: the note's status (`hold` or `approve`) and an empty child note with `_wp_note_status` (`resolved` or `reopen`). Counts are cached in the object cache (group `axle_review`) until a note changes.
 
@@ -128,7 +148,15 @@ Core keeps sending its own emails (the post author's note email, mention emails)
 | Hook | Use |
 | --- | --- |
 | `axle_review_capability` | `( string $capability, int $post_id )`. Who may create and revoke links for a post, checked as a meta capability. Default `edit_post`. An empty value keeps the default |
-| `axle_review_inbox_capability` | `( string $capability )`. Who sees Dashboard > Notes and Tools > Review Links. Default `edit_posts` |
+| `axle_review_codes_kept` | `( int $count )`. How many of the latest email codes work at once. Default 2, 1 to 5 |
+| `axle_review_link_fail_ceiling` | `( int $ceiling )`. Wrong codes or passwords from all visitors together that lock a link for 15 minutes. Default ten times `axle_review_code_max_tries`, 5 to 500 |
+| `axle_review_gate_page` | `( array $args, string $state )`. What the code, password and refused-link page shows, before `guest_page()` prints it |
+| `axle_review_change_source_statuses` | `( string[] $statuses )`. Statuses that can be changed through a working copy. Default `publish` |
+| `axle_review_change_copy_args` | `( array $args, WP_Post $post )`. The fields of a new working copy before `wp_insert_post()` |
+| `axle_review_change_skip_meta` | `( string[] $keys )`. Meta keys (or prefixes ending in `*`) kept out of the copy and the merge |
+| `axle_review_change_merge_terms` | `( bool $merge, WP_Post $copy, WP_Post $original )`. Also take the copy's terms. Default false |
+| `axle_review_change_use_merge_message` | `( string $message )`. What someone sees when they publish a working copy directly |
+| `axle_review_inbox_capability` | `( string $capability )`. Who sees Dashboard > Notes and its Review links view. Default `edit_posts` |
 | `axle_review_settings_capability` | `( string $capability )`. Who changes the settings and pauses links. Default `manage_options` |
 | `axle_review_gate_override_capability` | `( string $capability )`. Who may publish past the gate with a reason. Default `edit_others_posts` |
 | `axle_review_post_types` | `( string[] $types )`. Post types with links, the gate and the Notes column. Default: types with Notes support. Unknown types are dropped |
@@ -196,6 +224,11 @@ add_filter( 'axle_review_kill_link_on_status', function ( $statuses ) {
 | `axle_review_links_resumed` | `( int $user_id )` after links were resumed |
 | `axle_review_code_sent` | `( array $link )` after an email code was sent |
 | `axle_review_code_failed` | `( array $link )` after a wrong or expired code |
+| `axle_review_link_guessing` | `( array $link )` when one visitor failed a link's code or password as often as the limit allows and its creator was told |
+| `axle_review_change_requested` | `( int $copy_id, int $original_id, int $user_id )` after a working copy was made |
+| `axle_review_change_published` | `( int $original_id, int $copy_id, int $user_id, array $info )` after a copy was merged. `$info`: `notes` moved, `revision` kept as undo (0 when revisions are off) |
+| `axle_review_change_discarded` | `( int $copy_id, int $original_id, int $user_id )` after a copy was discarded |
+| `axle_review_change_undone` | `( int $post_id, int $user_id )` after the last published change was undone |
 | `axle_review_access_denied` | `( string $reason, array\|null $link )` when a link was refused |
 | `axle_review_guest_note_created` | `( WP_Comment $note, array $link )` after a reviewer note or reply was saved |
 | `axle_review_guest_note_attached` | `( WP_Comment $note, array $attached )` after it went on its block: `path`, `orphan` |
@@ -218,7 +251,9 @@ Read when used, so scripts that load later can hook in.
 
 | Hook | Type | Where | Use |
 | --- | --- | --- | --- |
-| `axleReview.expiryChoices` | filter | editor panel | `( { value, label }[] choices )`. Read each time the form opens |
+| `axleReview.expiryChoices` | filter | editor panel | `( { value, label }[] choices )`. Read each time the panel opens |
+| `axleReview.changeRequested` | action | editor panel | `( result )` after a working copy was made |
+| `axleReview.changePublished` | action | editor panel | `( result )` after a change was published |
 | `axleReview.blockSelector` | filter | review page | `( string selector )`. Which elements count as a block in note mode. Only elements the review render marked can match |
 | `axleReview.popoverFields` | filter | review page | `( string[] fields, config )`. From `name`, `email`, `note`. The note is always there; email is left out on email-locked links |
 | `axleReview.inboxColumns` | filter | Dashboard > Notes | `( string[] columns )`. Columns to show. The note column always stays |
@@ -235,11 +270,11 @@ wp.hooks.addFilter( 'axleReview.blockSelector', 'my-site', () => '[data-axr-name
 
 ## Abilities
 
-On WordPress 6.9 and later Axle Review registers [abilities](https://developer.wordpress.org/apis/abilities/) in the `axle-review` category, for AI agents through the [MCP adapter](https://github.com/WordPress/mcp-adapter) and anything else through `/wp-abilities/v1/`. Each is marked public. They check the same capabilities as the screens. No ability pauses links, changes settings, publishes past the gate or approves a draft: only a reviewer can approve, through their own link.
+On WordPress 6.9 and later Axle Review registers [abilities](https://developer.wordpress.org/apis/abilities/) in the `axle-review` category, for AI agents through the [MCP adapter](https://github.com/WordPress/mcp-adapter) and anything else through `/wp-abilities/v1/`. Each is marked public. They check the same capabilities as the screens. No ability pauses links, changes settings, publishes past the gate (publishing a change obeys the gate) or approves a draft: only a reviewer can approve, through their own link.
 
 | Ability | Does | Needs |
 | --- | --- | --- |
-| `axle-review/list-notes` | Read-only. Notes with `status` (unresolved, resolved, all), `post`, `post_type`, `mentions` (user ID, 7.1+), `guests`, `since`, `page`, `per_page` | the inbox capability; the notes and `total` only cover posts the user may edit, by the same rule as Dashboard > Notes |
+| `axle-review/list-notes` | Read-only. Notes with `status` (unresolved, resolved, all), `post`, `post_type`, `mentions` (user ID, 7.1+), `guests`, `since`, `page`, `per_page` | the inbox capability; rows filtered by `edit_post` |
 | `axle-review/get-note-thread` | Read-only. `id`: the note, replies, the block it is on (name, path, text) and the resolve/reopen history | `edit_post` on its post |
 | `axle-review/add-note` | `post`, `text`, and `block` (a path such as `2` or `2.0`) or `match` (text the block contains), or `reply_to`. `mentions` (user IDs) writes core mention chips on 7.1+. The note is by the current user | `edit_post` |
 | `axle-review/resolve-note` | Idempotent. `id` | `edit_post` on its post |
@@ -249,6 +284,10 @@ On WordPress 6.9 and later Axle Review registers [abilities](https://developer.w
 | `axle-review/list-review-links` | Read-only. `post`, `status` | the inbox capability; rows filtered by the share capability |
 | `axle-review/create-review-link` | `post`, `label`, `expires`, `max_views`, `email`, `allow_notes`. Returns the URL once | the share capability on the post |
 | `axle-review/revoke-review-link` | Destructive, idempotent. `id` | the share capability on the link's post |
+| `axle-review/request-change-review` | `post`: makes a working copy of a published post. Not destructive | `edit_post` on the live post (the share capability) and the type's `create_posts` |
+| `axle-review/publish-change` | Destructive, not idempotent. `post` (the copy), `overwrite`: merges the copy into the live post after the gate. The old version is kept for the undo | `edit_post` on both posts and the type's `publish_posts` |
+| `axle-review/discard-change` | Destructive, idempotent. `post` (the copy): deletes it and its links | `delete_post` on the copy |
+| `axle-review/undo-change` | Destructive. `post` (the live post), `overwrite`: puts back what was there before the last published change | `edit_post` and the type's `publish_posts` |
 
 ## REST routes
 
@@ -259,6 +298,7 @@ Under `/wp-json/axle-review/v1/`:
 | `GET`, `POST /guest/notes`, `POST /guest/ping` | the review page. Session cookie plus `X-Axle-Review-Nonce` |
 | `GET`, `POST /links?post=`, `DELETE /links/<id>`, `GET /links/<id>/activity`, `POST /links/revoke-all` | the editor panel. The share capability |
 | `GET /notes/pending?post=`, `GET /gate?post=`, `GET /review?post=`, `POST /gate/override` | the editor. `edit_post`; the override also needs the override capability |
+| `GET /changes?post=`, `POST /changes`, `POST /changes/publish`, `POST /changes/discard`, `POST /changes/undo` | the editor panel. Each checks the post it touches (see Review a change to a live page) |
 | `POST /links/<id>/ask-again` | the editor panel. The share capability on the link's post |
 | `POST /guest/decision` | the review page. Same session and nonce as notes |
 
@@ -270,6 +310,11 @@ wp axle-review link list [--post=<id>] [--status=active|used|expired|revoked] [-
 wp axle-review link revoke <id>... [--post=<id>]
 wp axle-review link ask-again <id> [--porcelain]   # new URL for a reviewer who answered; emailed when the link has an address
 wp axle-review review status <post> [--format=<format>]
+wp axle-review change request <post> [--porcelain]   # a working copy of a published post
+wp axle-review change list [--format=<format>]
+wp axle-review change publish <copy> [--overwrite]    # merge the copy into the live post (the gate applies)
+wp axle-review change discard <copy>
+wp axle-review change undo <post> [--overwrite]       # put back what was there before the last published change
 wp axle-review link activity <id> [--format=<format>]
 wp axle-review link pause
 wp axle-review link resume
@@ -294,26 +339,30 @@ Critical when the tables are missing. Recommended when:
 - the last Slack message failed
 - a page cache served a review page twice in the last week. Each page render has an ID that the toolbar reports once
 - the gate holds back drafts that have not changed in two weeks
+- a working copy points to a post that is gone or no longer published
 
 ## Data
 
 | Where | Contents |
 | --- | --- |
 | `{prefix}axle_review_links` table | One row per link: post, token hash, label, creator, created, expires, view limit, views, email (for codes), password hash, notes allowed, sharing, revoked when and by whom, last opened. Sign-off adds the reviewer's name, decision, comment, when, the mirrored note, when the approval went out of date, when they were asked again, and the snapshots of what they saw (hashes only, no text) |
-| `{prefix}axle_review_events` table | Link activity: `open`, `code_sent`, `code_ok`, `code_fail`, `password_fail`, `note`, `reply_seen`, `denied`, `decision`, with the time, anonymised IP, browser family and note ID. Kept 90 days |
+| `{prefix}axle_review_events` table | Link activity: `open`, `code_sent`, `code_ok`, `code_fail`, `password_fail`, `guess_alert`, `note`, `reply_seen`, `denied`, `decision`, with the time, anonymised IP, browser family and note ID. Kept 90 days |
 | Comment meta on reviewer notes | `_axr_link_id`, `_axr_anchor` (path, hash, block name, quote), `_axr_pending_attach`, `_axr_email_verified`, `_axr_session` (to find a reviewer's own threads), `_axr_orphaned`, `_axr_decision` (on the note that mirrors an answer) |
+| Post meta | `_axr_change_of` (on a working copy: its live post), `_axr_change_copy` (on a live post: its copy), `_axr_change_base` (hash of the live post when the copy was made), `_axr_change_undo` (JSON: what Undo puts back) |
 | User meta | `axle_review_notify` (instant, hourly, daily, off), `axle_review_inbox_seen`, `axle_review_digest_sent`, `axle_review_steps_dismissed` |
 | Options | `axle_review_settings`, `axle_review_paused`, `axle_review_slack` (webhook), `axle_review_slack_status`, `axle_review_cache_warning`, `axle_review_db_version`; site option `axle_review_network_paused` |
-| Transients | Email codes, failure counters, page render IDs, gate overrides |
+| Transients | Email codes (the last two), failure counters, a guessing-alert guard, page render IDs, gate overrides |
 | Cron | `axle_review_prune` (daily), `axle_review_digest_hourly`, `axle_review_digest_daily` |
 
-Uninstalling drops both tables and deletes the options, user meta, comment meta, transients and cron events, on every site of a network. Reviewer notes stay, since they are core Notes now; `axle_review_delete_guest_notes_on_uninstall` deletes them.
+Uninstalling drops both tables and deletes the options, user meta, comment meta, the post meta above (working copies stay as ordinary drafts), transients and cron events, on every site of a network. Reviewer notes stay, since they are core Notes now; `axle_review_delete_guest_notes_on_uninstall` deletes them.
 
 ## Privacy
 
 - **Tools > Export Personal Data** by email: a reviewer's notes, and the links locked to that address with their name, answer, comment and activity
 - **Tools > Erase Personal Data**: reviewer notes keep their text, with the name and email replaced by "Reviewer" (`axle_review_erase_deletes_notes` deletes them instead); links locked to the address are revoked and forget the address, the name and the comment; their activity is deleted
 - **Settings > Privacy** gets suggested text
+- The code and password gate sets the cookies `axr_<link id>` and `axr_step_<link id>` (see Review links); the suggested text says so
+- Publishing a change writes a count of approving reviewers, not their names, so erasing a reviewer's data stays complete
 - IP addresses are anonymised before they are stored, and only the browser family is kept, never the user agent
 
 ## Limits
@@ -324,5 +373,6 @@ Uninstalling drops both tables and deletes the options, user meta, comment meta,
 - Blocks that list posts only show public posts on a review page. A block that shows other private data, such as a list of users, still shows it to reviewers.
 - An approval covers the blocks, title, excerpt and featured image. It does not cover post meta, terms, the slug or the date.
 - Ask again changes the link's URL, so the old one stops working.
-- The editor watcher polls every 20 seconds. Real-time collaboration in core is not covered yet.
+- The editor watcher asks for reviewer notes every 20 seconds, and only while the post has a live link and the tab is visible. Real-time collaboration in core is not covered yet.
+- A working copy is made from blocks, post meta and the featured image. Terms stay with the live post. Notes on a block the change rewrote stay on the live post without a block. Undo does not move Notes back.
 - Notes on templates and the Site Editor are not supported, as in core.

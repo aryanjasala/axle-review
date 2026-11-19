@@ -47,6 +47,9 @@ final class AccessTest extends ReviewTestCase {
 		Functions\when( 'get_the_title' )->justReturn( 'Draft' );
 		Functions\when( 'wp_specialchars_decode' )->returnArg();
 		Functions\when( 'wp_privacy_anonymize_ip' )->returnArg();
+		Functions\when( 'get_userdata' )->alias( static fn( $id ) => 1 === (int) $id ? (object) array( 'user_email' => 'editor@example.com' ) : false );
+		Functions\when( 'add_query_arg' )->alias( static fn( $args, $url = '' ) => $url . ( false === strpos( $url, '?' ) ? '?' : '&' ) . http_build_query( (array) $args ) );
+		Functions\when( 'admin_url' )->alias( static fn( $path = '' ) => 'https://example.com/wp-admin/' . $path );
 	}
 
 	protected function tearDown(): void {
@@ -159,5 +162,112 @@ final class AccessTest extends ReviewTestCase {
 
 		$this->assertSame( 'axle_review_bad_password', $this->access->check_password( $link, 'nope' )->get_error_code() );
 		$this->assertTrue( $this->access->check_password( $link, 'open' ) );
+	}
+
+	/**
+	 * The code from the Nth email.
+	 *
+	 * @param int $n Index of the email, from 0.
+	 * @return string
+	 */
+	private function code_from_mail( int $n ): string {
+		preg_match( '/\b(\d{6})\b/', $this->mail[ $n ]['message'], $match );
+		return $match[1];
+	}
+
+	public function test_the_last_two_codes_both_work(): void {
+		$link = $this->link( array( 'email' => 'legal@example.com' ) );
+		$this->access->send_code( $link );
+		$this->access->send_code( $link );
+		$this->access->send_code( $link );
+
+		$first  = $this->code_from_mail( 0 );
+		$second = $this->code_from_mail( 1 );
+		$third  = $this->code_from_mail( 2 );
+
+		// A double click sends two emails: the first one still opens the page. Only the last two are kept.
+		$this->assertSame( 'axle_review_bad_code', $this->access->check_code( $link, $first )->get_error_code() );
+		$this->assertTrue( $this->access->check_code( $link, $second ) );
+		$this->assertSame( 'axle_review_bad_code', $this->access->check_code( $link, $third )->get_error_code(), 'A used code clears the rest.' );
+	}
+
+	public function test_a_double_click_does_not_make_the_first_code_wrong(): void {
+		$link = $this->link( array( 'email' => 'legal@example.com' ) );
+		$this->access->send_code( $link );
+		$this->access->send_code( $link );
+
+		$this->assertTrue( $this->access->check_code( $link, $this->code_from_mail( 0 ) ) );
+		$this->assertArrayNotHasKey( 'axle_review_fails_link_7', $this->transients, 'The first code was right, so no failure is counted.' );
+	}
+
+	public function test_a_wrong_try_does_not_give_the_code_more_time(): void {
+		$link = $this->link( array( 'email' => 'legal@example.com' ) );
+		$this->access->send_code( $link );
+		$this->assertSame( 10 * MINUTE_IN_SECONDS, $this->transient_ttl['axle_review_code_7'] );
+
+		$stored                                  = $this->transients['axle_review_code_7'];
+		$stored['codes'][0]['until']             = time() + 120;
+		$this->transients['axle_review_code_7'] = $stored;
+
+		$this->access->check_code( $link, '000000' );
+		$this->assertLessThanOrEqual( 120, $this->transient_ttl['axle_review_code_7'] );
+		$this->assertGreaterThan( 100, $this->transient_ttl['axle_review_code_7'] );
+	}
+
+	public function test_a_forwarded_link_cannot_lock_the_real_reviewer_out(): void {
+		$link = $this->link( array( 'email' => 'legal@example.com' ) );
+		$this->access->send_code( $link );
+		$right = $this->code_from_mail( 0 );
+
+		// Somebody else, from another address, has failed as often as the limit allows.
+		$_SERVER['REMOTE_ADDR'] = '203.0.113.9';
+		for ( $i = 0; $i < 5; $i++ ) {
+			$this->access->check_code( $link, '000000' );
+		}
+		$this->assertTrue( $this->access->locked( 7 ) );
+
+		// The reviewer arrives from their own address and is not locked out.
+		$_SERVER['REMOTE_ADDR'] = '198.51.100.4';
+		$this->assertFalse( $this->access->locked( 7 ), 'The failures of one visitor do not lock the link.' );
+		unset( $_SERVER['REMOTE_ADDR'] );
+		$this->assertNotNull( $right );
+	}
+
+	public function test_the_creator_is_told_after_five_wrong_tries_once(): void {
+		Actions\expectDone( 'axle_review_link_guessing' )->once();
+		$link = $this->link( array( 'email' => 'legal@example.com' ) );
+		$this->access->send_code( $link );
+		$this->mail = array();
+
+		for ( $i = 0; $i < 7; $i++ ) {
+			$this->access->check_code( $link, '000000' );
+		}
+
+		$told = array_values( array_filter( $this->mail, static fn( $mail ) => 'editor@example.com' === $mail['to'] ) );
+		$this->assertCount( 1, $told );
+		$this->assertStringContainsString( 'Legal', $told[0]['subject'] );
+		$this->assertStringContainsString( 'index.php?page=axle-review-notes&view=links', $told[0]['message'] );
+	}
+
+	public function test_failed_passwords_count_for_the_visitor_and_tell_the_creator(): void {
+		Functions\when( 'wp_check_password' )->justReturn( false );
+		$link = $this->link( array( 'password_hash' => 'hashed:open' ) );
+		for ( $i = 0; $i < 5; $i++ ) {
+			$this->access->check_password( $link, 'nope' );
+		}
+
+		$this->assertTrue( $this->access->locked( 7 ) );
+		$this->assertSame( 'editor@example.com', $this->mail[0]['to'] );
+	}
+
+	public function test_five_wrong_tries_drop_the_code_so_a_new_one_is_needed(): void {
+		$link = $this->link( array( 'email' => 'legal@example.com' ) );
+		$this->access->send_code( $link );
+		$this->assertTrue( Access::has_live_code( 7 ) );
+
+		for ( $i = 0; $i < 5; $i++ ) {
+			$this->access->check_code( $link, '000000' );
+		}
+		$this->assertFalse( Access::has_live_code( 7 ) );
 	}
 }

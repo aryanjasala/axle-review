@@ -33,6 +33,13 @@ final class Inbox implements Service {
 	private Notes $notes;
 
 	/**
+	 * Review links, shown as a view of this screen.
+	 *
+	 * @var LinksPage|null
+	 */
+	private ?LinksPage $links_page;
+
+	/**
 	 * Threads that need a reply form after the table.
 	 *
 	 * @var int[]
@@ -42,10 +49,12 @@ final class Inbox implements Service {
 	/**
 	 * Sets up the inbox.
 	 *
-	 * @param Notes $notes Notes.
+	 * @param Notes          $notes      Notes.
+	 * @param LinksPage|null $links_page Review links, shown as the Review links view.
 	 */
-	public function __construct( Notes $notes ) {
-		$this->notes = $notes;
+	public function __construct( Notes $notes, ?LinksPage $links_page = null ) {
+		$this->notes      = $notes;
+		$this->links_page = $links_page;
 	}
 
 	/**
@@ -101,6 +110,7 @@ final class Inbox implements Service {
 			'guests'     => __( 'From reviewers', 'axle-review' ),
 			'resolved'   => __( 'Resolved', 'axle-review' ),
 			'all'        => __( 'All', 'axle-review' ),
+			'links'      => __( 'Review links', 'axle-review' ),
 		);
 
 		if ( ! Notes::has_mentions() ) {
@@ -109,7 +119,8 @@ final class Inbox implements Service {
 
 		/**
 		 * Filters the inbox views. Keys other than the built-in ones are
-		 * ignored; remove a key to hide that view.
+		 * ignored; remove a key to hide that view. The links view is the list
+		 * of review links.
 		 *
 		 * @param array $views Key => label.
 		 */
@@ -131,7 +142,7 @@ final class Inbox implements Service {
 		$range = isset( $_GET['since'] ) ? sanitize_key( wp_unslash( $_GET['since'] ) ) : '';
 		$args  = array(
 			'view'      => $view,
-			'status'    => in_array( $view, array( 'resolved', 'all' ), true ) ? $view : ( in_array( $view, array( 'mentions', 'mine', 'guests' ), true ) ? 'all' : 'unresolved' ),
+			'status'    => self::view_status( $view ),
 			'post_id'   => isset( $_GET['post_id'] ) ? absint( $_GET['post_id'] ) : 0,
 			'post_type' => isset( $_GET['post_type'] ) ? sanitize_key( wp_unslash( $_GET['post_type'] ) ) : '',
 			'author'    => isset( $_GET['author'] ) ? absint( $_GET['author'] ) : 0,
@@ -168,9 +179,38 @@ final class Inbox implements Service {
 	}
 
 	/**
+	 * The note status a view shows.
+	 *
+	 * @param string $view View key.
+	 * @return string unresolved, resolved or all.
+	 */
+	private static function view_status( string $view ): string {
+		if ( in_array( $view, array( 'resolved', 'all' ), true ) ) {
+			return $view;
+		}
+
+		return in_array( $view, array( 'mentions', 'mine', 'guests' ), true ) ? 'all' : 'unresolved';
+	}
+
+	/**
+	 * Whether the current request shows the Review links view.
+	 *
+	 * @return bool
+	 */
+	private function is_links_view(): bool {
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Display only.
+		return $this->links_page && isset( $_GET['view'] ) && 'links' === sanitize_key( wp_unslash( $_GET['view'] ) ) && isset( self::views()['links'] );
+	}
+
+	/**
 	 * Bulk actions, assets and the seen time.
 	 */
 	public function load(): void {
+		if ( $this->is_links_view() ) {
+			$this->links_page->load();
+			return;
+		}
+
 		$table  = new NotesTable( $this->notes, $this->filters() );
 		$action = $table->current_action();
 		if ( in_array( $action, array( 'resolve', 'reopen' ), true ) ) {
@@ -223,7 +263,7 @@ final class Inbox implements Service {
 			array(
 				'id'      => 'views',
 				'title'   => __( 'Views and filters', 'axle-review' ),
-				'content' => '<p>' . esc_html__( 'The tabs split notes into unresolved, mentions of you, notes on your posts, notes from reviewers, resolved and all. Use the filters to narrow by post type, author or date.', 'axle-review' ) . '</p>',
+				'content' => '<p>' . esc_html__( 'The links above the list split notes into unresolved, mentions of you, notes on your posts, notes from reviewers, resolved and all. Review links is the list of links you shared. Use the filters next to Bulk actions to narrow by post type, author or date.', 'axle-review' ) . '</p>',
 			),
 			array(
 				'id'      => 'work',
@@ -354,23 +394,48 @@ final class Inbox implements Service {
 	 * Prints the inbox.
 	 */
 	public function render(): void {
-		$filters = $this->filters();
-		$table   = new NotesTable( $this->notes, $filters );
-		$table->prepare_items();
+		$links_view = $this->is_links_view();
+		$filters    = $this->filters();
 
-		echo '<div class="wrap axle-ui axr-inbox">';
+		echo '<div class="wrap axle-ui axr-inbox' . ( $links_view ? ' axr-links' : '' ) . '">';
 		echo '<h1 class="wp-heading-inline">' . esc_html__( 'Notes', 'axle-review' ) . '</h1>';
+		if ( $links_view && Settings::paused() ) {
+			echo '<span class="axle-status"><span class="axle-badge axle-badge--warning">' . esc_html__( 'Paused', 'axle-review' ) . '</span></span>';
+		}
 		echo '<hr class="wp-header-end">';
+
+		if ( $links_view ) {
+			$this->print_views( $filters );
+			$this->links_page->render_body();
+			AxleUi::footer();
+			echo '</div>';
+			return;
+		}
+
+		$table = new NotesTable( $this->notes, $filters );
+		$table->prepare_items();
 
 		$this->notice();
 		$this->print_views( $filters );
 		echo '<p class="axle-intro">' . esc_html__( 'Every note on the site in one place, from your team and from reviewers. Reply, resolve or reopen a note without opening its post.', 'axle-review' ) . '</p>';
 
+		if ( $filters['post_id'] ) {
+			printf(
+				'<p class="axr-filter-post">%1$s <a href="%2$s">%3$s</a></p>',
+				/* translators: %s: post title. */
+				esc_html( sprintf( __( 'Showing notes on "%s".', 'axle-review' ), get_the_title( (int) $filters['post_id'] ) ) ),
+				esc_url( self::url( array( 'view' => $filters['view'] ) ) ),
+				esc_html__( 'Show all posts', 'axle-review' )
+			);
+		}
+
 		echo '<form method="get" class="axr-inbox-form">';
 		echo '<input type="hidden" name="page" value="' . esc_attr( self::SLUG ) . '">';
 		echo '<input type="hidden" name="view" value="' . esc_attr( (string) $filters['view'] ) . '">';
-		$this->filter_bar( $filters );
-		if ( $table->has_items() ) {
+		if ( $filters['post_id'] ) {
+			printf( '<input type="hidden" name="post_id" value="%d">', (int) $filters['post_id'] );
+		}
+		if ( $table->has_items() || $this->has_filter( $filters ) ) {
 			printf( '<div class="axle-scroll" tabindex="0" role="region" aria-label="%s">', esc_attr__( 'Notes', 'axle-review' ) );
 			$table->display();
 			echo '</div>';
@@ -394,6 +459,16 @@ final class Inbox implements Service {
 
 		AxleUi::footer();
 		echo '</div>';
+	}
+
+	/**
+	 * Whether the request narrows the list by post type, author or date.
+	 *
+	 * @param array $filters Filters.
+	 * @return bool
+	 */
+	private function has_filter( array $filters ): bool {
+		return '' !== (string) $filters['post_type'] || (int) $filters['author'] > 0 || '' !== (string) $filters['range'];
 	}
 
 	/**
@@ -429,43 +504,49 @@ final class Inbox implements Service {
 	}
 
 	/**
-	 * The view links with counts.
+	 * The views as core prints them for Posts and Comments: a row of links with counts.
 	 *
 	 * @param array $filters Filters.
 	 */
 	private function print_views( array $filters ): void {
-		$tabs  = array();
-		$views = self::views();
-		foreach ( $views as $key => $label ) {
-			$url   = self::url( array_filter( array( 'view' => $key ) ) );
+		$links = array();
+		foreach ( self::views() as $key => $label ) {
 			$count = '';
-			if ( 'unresolved' === $key ) {
+			if ( 'links' !== $key ) {
 				$args = $filters;
-				unset( $args['mentions'], $args['on_posts_by'], $args['guests'], $args['since'] );
-				$query = Notes::query_args( array_merge( $args, array( 'status' => 'unresolved' ) ) );
+				$args = array_merge( $args, array( 'status' => self::view_status( $key ) ) );
+				unset( $args['mentions'], $args['on_posts_by'], $args['guests'], $args['since'], $args['post_type'], $args['author'] );
+				if ( 'mentions' === $key ) {
+					$args['mentions'] = get_current_user_id();
+				} elseif ( 'mine' === $key ) {
+					$args['on_posts_by'] = get_current_user_id();
+				} elseif ( 'guests' === $key ) {
+					$args['guests'] = true;
+				}
+				$query = Notes::query_args( $args );
 				$count = ' <span class="count">(' . number_format_i18n( $this->notes->cached_count( array_merge( $query, array( 'count' => true ) ) ) ) . ')</span>';
 			}
-			$tabs[] = sprintf(
-				'<a href="%1$s" class="nav-tab%2$s"%3$s>%4$s%5$s</a>',
-				esc_url( $url ),
-				$key === $filters['view'] ? ' nav-tab-active' : '',
-				$key === $filters['view'] ? ' aria-current="page"' : '',
+
+			$current = $key === $filters['view'] || ( 'links' === $key && $this->is_links_view() );
+			$links[] = sprintf(
+				'<li class="%1$s"><a href="%2$s"%3$s>%4$s%5$s</a>',
+				esc_attr( $key ),
+				esc_url( self::url( array( 'view' => $key ) ) ),
+				$current ? ' class="current" aria-current="page"' : '',
 				esc_html( $label ),
 				wp_kses( $count, array( 'span' => array( 'class' => true ) ) )
 			);
 		}
 
-		echo '<nav class="nav-tab-wrapper" aria-label="' . esc_attr__( 'Note views', 'axle-review' ) . '">' . implode( '', $tabs ) . '</nav>'; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Escaped above.
+		echo '<ul class="subsubsub">' . implode( ' |</li>', $links ) . '</li></ul><br class="clear">'; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Escaped above.
 	}
 
 	/**
-	 * Post type, post, author and date filters.
+	 * Post type, author and date filters, printed by the table next to Bulk actions.
 	 *
 	 * @param array $filters Filters.
 	 */
-	private function filter_bar( array $filters ): void {
-		echo '<div class="axle-toolbar">';
-
+	public static function filter_controls( array $filters ): void {
 		echo '<label for="axr-filter-type" class="screen-reader-text">' . esc_html__( 'Post type', 'axle-review' ) . '</label>';
 		echo '<select id="axr-filter-type" name="post_type"><option value="">' . esc_html__( 'All post types', 'axle-review' ) . '</option>';
 		foreach ( Settings::post_types() as $type ) {
@@ -498,22 +579,6 @@ final class Inbox implements Service {
 		}
 		echo '</select>';
 
-		if ( $filters['post_id'] ) {
-			printf( '<input type="hidden" name="post_id" value="%d">', (int) $filters['post_id'] );
-		}
-
 		submit_button( __( 'Filter', 'axle-review' ), '', 'axr-filter', false );
-
-		if ( $filters['post_id'] ) {
-			printf(
-				' <span class="axr-filter-post">%1$s <a href="%2$s">%3$s</a></span>',
-				/* translators: %s: post title. */
-				esc_html( sprintf( __( 'Showing notes on "%s".', 'axle-review' ), get_the_title( (int) $filters['post_id'] ) ) ),
-				esc_url( self::url( array( 'view' => $filters['view'] ) ) ),
-				esc_html__( 'Show all posts', 'axle-review' )
-			);
-		}
-
-		echo '</div>';
 	}
 }

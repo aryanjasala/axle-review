@@ -1,6 +1,6 @@
 <?php
 /**
- * Tools > Review Links.
+ * Dashboard > Notes > Review links.
  *
  * @package AryanX\Axle\Review
  */
@@ -74,7 +74,7 @@ final class LinksPage implements Service {
 	 * Adds the hooks.
 	 */
 	public function register(): void {
-		add_action( 'admin_menu', array( $this, 'menu' ) );
+		add_action( 'admin_menu', array( $this, 'old_address' ) );
 		add_action( 'admin_post_axle_review_revoke', array( $this, 'handle_revoke' ) );
 		add_action( 'admin_post_axle_review_pause', array( $this, 'handle_pause' ) );
 		add_action( 'admin_post_axle_review_create_link', array( $this, 'handle_create' ) );
@@ -100,30 +100,43 @@ final class LinksPage implements Service {
 	}
 
 	/**
-	 * Adds Tools > Review Links.
+	 * Review links used to be Tools > Review Links. The old address stays
+	 * registered, without a menu item, so that bookmarks and old emails still
+	 * land on the Review links view of Dashboard > Notes.
 	 */
-	public function menu(): void {
-		$hook = add_management_page(
-			__( 'Review Links', 'axle-review' ),
-			__( 'Review Links', 'axle-review' ),
-			Settings::inbox_capability(),
-			self::SLUG,
-			array( $this, 'render' )
-		);
-
+	public function old_address(): void {
+		$hook = add_management_page( __( 'Review Links', 'axle-review' ), '', Settings::inbox_capability(), self::SLUG, '__return_null' );
 		if ( $hook ) {
-			add_action( 'load-' . $hook, array( $this, 'load' ) );
+			add_action( 'load-' . $hook, array( $this, 'redirect_old_url' ) );
 		}
+		remove_submenu_page( 'tools.php', self::SLUG );
 	}
 
 	/**
-	 * The page URL.
+	 * Sends the old address to the Review links view, with the same arguments.
+	 */
+	public function redirect_old_url(): void {
+		$args = array();
+		// phpcs:disable WordPress.Security.NonceVerification.Recommended -- A redirect that changes nothing.
+		foreach ( array( 'post_id', 'activity', 'status', 'created_by', 'paged', 'axr_revoked', 'axr_paused' ) as $key ) {
+			if ( isset( $_GET[ $key ] ) ) {
+				$args[ $key ] = sanitize_text_field( wp_unslash( $_GET[ $key ] ) );
+			}
+		}
+		// phpcs:enable
+
+		wp_safe_redirect( self::url( $args ), 301 );
+		exit;
+	}
+
+	/**
+	 * The Review links view of Dashboard > Notes.
 	 *
 	 * @param array $args Query args.
 	 * @return string
 	 */
 	public static function url( array $args = array() ): string {
-		return add_query_arg( $args, admin_url( 'tools.php?page=' . self::SLUG ) );
+		return Inbox::url( array_merge( array( 'view' => 'links' ), $args ) );
 	}
 
 	/**
@@ -277,7 +290,8 @@ final class LinksPage implements Service {
 		if ( is_wp_error( $created ) ) {
 			set_transient( 'axle_review_new_link_' . get_current_user_id(), array( 'error' => $created->get_error_message() ), MINUTE_IN_SECONDS );
 		} else {
-			$send_to = isset( $_POST['send_to'] ) ? sanitize_email( wp_unslash( $_POST['send_to'] ) ) : '';
+			// One address: the link is locked to it, and the link is emailed to it.
+			$send_to = isset( $_POST['email'] ) ? sanitize_email( wp_unslash( $_POST['email'] ) ) : '';
 			$emailed = '' !== $send_to && is_email( $send_to ) && EditorRoutes::email_link( $send_to, $created['url'], $created['link'] );
 			set_transient(
 				'axle_review_new_link_' . get_current_user_id(),
@@ -310,18 +324,11 @@ final class LinksPage implements Service {
 	}
 
 	/**
-	 * Prints the page.
+	 * Prints the Review links view, below the header and the views of Dashboard > Notes.
 	 */
-	public function render(): void {
+	public function render_body(): void {
 		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Display only.
 		$activity = isset( $_GET['activity'] ) ? absint( $_GET['activity'] ) : 0;
-
-		echo '<div class="wrap axle-ui axr-links">';
-		echo '<h1 class="wp-heading-inline">' . esc_html__( 'Review Links', 'axle-review' ) . '</h1>';
-		if ( Settings::paused() ) {
-			echo '<span class="axle-status"><span class="axle-badge axle-badge--warning">' . esc_html__( 'Paused', 'axle-review' ) . '</span></span>';
-		}
-		echo '<hr class="wp-header-end">';
 
 		$this->notices();
 
@@ -329,8 +336,6 @@ final class LinksPage implements Service {
 
 		if ( $activity ) {
 			$this->render_activity( $activity );
-			AxleUi::footer();
-			echo '</div>';
 			return;
 		}
 
@@ -351,12 +356,19 @@ final class LinksPage implements Service {
 			esc_attr__( 'Revoke %d selected links? Nobody can open the drafts through them any more. This cannot be undone.', 'axle-review' ),
 			esc_attr__( 'Revoke links', 'axle-review' )
 		);
-		echo '<input type="hidden" name="page" value="' . esc_attr( self::SLUG ) . '">';
+		echo '<input type="hidden" name="page" value="' . esc_attr( Inbox::SLUG ) . '">';
+		echo '<input type="hidden" name="view" value="links">';
 		if ( $filters['post_id'] ) {
 			printf( '<input type="hidden" name="post_id" value="%d">', (int) $filters['post_id'] );
+			printf(
+				'<p class="axr-filter-post">%1$s <a href="%2$s">%3$s</a></p>',
+				/* translators: %s: post title. */
+				esc_html( sprintf( __( 'Showing links to "%s".', 'axle-review' ), get_the_title( (int) $filters['post_id'] ) ) ),
+				esc_url( self::url() ),
+				esc_html__( 'Show all posts', 'axle-review' )
+			);
 		}
-		$this->filter_bar( $filters );
-		if ( $table->has_items() ) {
+		if ( $table->has_items() || '' !== $filters['status'] || $filters['created_by'] ) {
 			printf( '<div class="axle-scroll" tabindex="0" role="region" aria-label="%s">', esc_attr__( 'All links', 'axle-review' ) );
 			$table->display();
 			echo '</div>';
@@ -366,9 +378,6 @@ final class LinksPage implements Service {
 		echo '</form>';
 
 		$this->pause_form();
-
-		AxleUi::footer();
-		echo '</div>';
 	}
 
 	/**
@@ -617,8 +626,8 @@ final class LinksPage implements Service {
 
 		printf(
 			'<tr><th scope="row"><label for="axr-email">%1$s</label></th><td><input type="email" id="axr-email" name="email" class="regular-text" aria-describedby="axr-email-help"><p class="description" id="axr-email-help">%2$s</p></td></tr>',
-			esc_html__( 'Lock to an email', 'axle-review' ),
-			esc_html__( 'Optional. The reviewer gets a one-time code at this address before the page opens.', 'axle-review' )
+			esc_html__( 'Only this person can open it', 'axle-review' ),
+			esc_html__( 'Optional. Their email address. We email them the link, and they need a one-time code sent to this address to open it. Leave empty for anyone with the link.', 'axle-review' )
 		);
 
 		printf( '<tr><th scope="row"><label for="axr-password">%1$s</label></th><td><input type="password" id="axr-password" name="password" class="regular-text" autocomplete="new-password"></td></tr>', esc_html__( 'Password (optional)', 'axle-review' ) );
@@ -631,23 +640,17 @@ final class LinksPage implements Service {
 			esc_html__( 'Show them notes other reviewers left', 'axle-review' )
 		);
 
-		printf(
-			'<tr><th scope="row"><label for="axr-send-to">%1$s</label></th><td><input type="email" id="axr-send-to" name="send_to" class="regular-text"></td></tr>',
-			esc_html__( 'Email the link to', 'axle-review' )
-		);
-
 		echo '</tbody></table>';
 		submit_button( __( 'Create link', 'axle-review' ) );
 		echo '</form></section>';
 	}
 
 	/**
-	 * Post, creator and status filters.
+	 * Status and creator filters, printed by the table next to Bulk actions.
 	 *
 	 * @param array $filters Filters.
 	 */
-	private function filter_bar( array $filters ): void {
-		echo '<div class="axle-toolbar">';
+	public static function filter_controls( array $filters ): void {
 		echo '<label for="axr-filter-status" class="screen-reader-text">' . esc_html__( 'Status', 'axle-review' ) . '</label>';
 		echo '<select id="axr-filter-status" name="status"><option value="">' . esc_html__( 'All statuses', 'axle-review' ) . '</option>';
 		foreach ( Links::STATUSES as $status ) {
@@ -667,17 +670,6 @@ final class LinksPage implements Service {
 			)
 		);
 		submit_button( __( 'Filter', 'axle-review' ), '', 'axr-filter', false );
-
-		if ( $filters['post_id'] ) {
-			printf(
-				' <span class="axr-filter-post">%1$s <a href="%2$s">%3$s</a></span>',
-				/* translators: %s: post title. */
-				esc_html( sprintf( __( 'Showing links to "%s".', 'axle-review' ), get_the_title( (int) $filters['post_id'] ) ) ),
-				esc_url( self::url() ),
-				esc_html__( 'Show all posts', 'axle-review' )
-			);
-		}
-		echo '</div>';
 	}
 
 	/**
@@ -731,6 +723,7 @@ final class LinksPage implements Service {
 			'code_sent'     => __( 'Code sent', 'axle-review' ),
 			'code_ok'       => __( 'Right code', 'axle-review' ),
 			'code_fail'     => __( 'Wrong code', 'axle-review' ),
+			'guess_alert'   => __( 'Locked after many wrong tries', 'axle-review' ),
 			'password_fail' => __( 'Wrong password', 'axle-review' ),
 			'note'          => __( 'Left a note', 'axle-review' ),
 			'reply_seen'    => __( 'Saw replies', 'axle-review' ),

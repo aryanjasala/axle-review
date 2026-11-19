@@ -109,4 +109,39 @@ final class AttacherTest extends ReviewTestCase {
 		$attacher = new Attacher();
 		$this->assertSame( 25, $attacher->no_revision( 25, new \WP_Post( array( 'ID' => 42 ) ) ) );
 	}
+
+	public function test_the_kses_filters_come_back_even_when_the_write_fails(): void {
+		$calls = array();
+		Functions\when( 'has_filter' )->justReturn( 10 );
+		Functions\when( 'kses_remove_filters' )->alias(
+			static function () use ( &$calls ) {
+				$calls[] = 'off';
+			}
+		);
+		Functions\when( 'kses_init_filters' )->alias(
+			static function () use ( &$calls ) {
+				$calls[] = 'on';
+			}
+		);
+		Functions\when( 'wp_update_post' )->alias(
+			static function () {
+				throw new \RuntimeException( 'boom' );
+			}
+		);
+
+		$attacher = new Attacher();
+		$write    = new \ReflectionMethod( Attacher::class, 'write' );
+		$write->setAccessible( true );
+
+		try {
+			$write->invoke( $attacher, 42, 'content' );
+			$this->fail( 'The exception should come out.' );
+		} catch ( \RuntimeException $e ) {
+			$this->assertSame( 'boom', $e->getMessage() );
+		}
+
+		$this->assertSame( array( 'off', 'on' ), $calls );
+		// The attach write is over: a later save of the post is not treated as one.
+		$this->assertSame( 25, $attacher->no_revision( 25, new \WP_Post( array( 'ID' => 42 ) ) ) );
+	}
 }

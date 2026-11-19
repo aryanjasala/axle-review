@@ -46,7 +46,7 @@ final class Visits {
 	 * @param array    $link        The link.
 	 * @param \WP_Post $post        The post being shown.
 	 * @param bool     $new_session Whether this load started a new session.
-	 * @return array{hash: string, since: string, changes: array|null, revisions: bool}
+	 * @return array{hash: string, since: string, changes: array|null, revisions: bool, live: bool}
 	 */
 	public function record( array $link, \WP_Post $post, bool $new_session ): array {
 		$current = Fingerprint::of( $post );
@@ -63,10 +63,24 @@ final class Visits {
 			$columns['seen_at']       = (string) $link['visit_at'];
 		}
 
+		$old_id = (int) $post->ID;
+		$live   = false;
+
+		// On a working copy of a live post the reviewer compares with the live page.
+		$baseline = Changes::live_baseline( $post );
+		if ( $baseline ) {
+			$seen   = $baseline['snapshot'];
+			$when   = '';
+			$old_id = $baseline['post_id'];
+			$live   = true;
+		}
+
 		$asked = '' !== (string) $link['reask_at'] ? Fingerprint::decode( (string) $link['decision_snapshot'] ) : null;
 		if ( $asked ) {
-			$seen = $asked;
-			$when = (string) $link['decided_at'];
+			$seen   = $asked;
+			$when   = (string) $link['decided_at'];
+			$old_id = (int) $post->ID;
+			$live   = false;
 		}
 
 		if ( ! $last || ! hash_equals( (string) $last['hash'], (string) $current['hash'] ) ) {
@@ -86,9 +100,12 @@ final class Visits {
 		if ( $seen ) {
 			$diff = Fingerprint::compare( $seen, $current );
 			if ( $diff['count'] > 0 ) {
-				$changes = Approvals::describe( $diff, (int) $post->ID, $seen );
+				$changes = Approvals::describe( $diff, $old_id, $seen );
 			}
 		}
+
+		$revisions_of = $live ? get_post( $old_id ) : $post;
+		$revisions_of = $revisions_of instanceof \WP_Post ? $revisions_of : $post;
 
 		/**
 		 * Filters what the review page shows as changed since the reviewer's last look.
@@ -103,7 +120,8 @@ final class Visits {
 			'hash'      => (string) $current['hash'],
 			'since'     => Links::iso( $when ),
 			'changes'   => is_array( $changes ) ? $changes : null,
-			'revisions' => Fingerprint::revisions_on( $post ),
+			'revisions' => Fingerprint::revisions_on( $revisions_of ),
+			'live'      => $live && is_array( $changes ),
 		);
 	}
 }

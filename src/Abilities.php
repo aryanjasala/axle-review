@@ -63,6 +63,13 @@ final class Abilities implements Service {
 	private Approvals $approvals;
 
 	/**
+	 * Working copies.
+	 *
+	 * @var Changes
+	 */
+	private Changes $changes;
+
+	/**
 	 * Sets up the abilities.
 	 *
 	 * @param Settings  $settings  Settings.
@@ -71,14 +78,16 @@ final class Abilities implements Service {
 	 * @param Notes     $notes     Notes.
 	 * @param Gate      $gate      Gate.
 	 * @param Approvals $approvals Approvals.
+	 * @param Changes   $changes   Working copies.
 	 */
-	public function __construct( Settings $settings, Links $links, Events $events, Notes $notes, Gate $gate, Approvals $approvals ) {
+	public function __construct( Settings $settings, Links $links, Events $events, Notes $notes, Gate $gate, Approvals $approvals, Changes $changes ) {
 		$this->settings  = $settings;
 		$this->links     = $links;
 		$this->events    = $events;
 		$this->notes     = $notes;
 		$this->gate      = $gate;
 		$this->approvals = $approvals;
+		$this->changes   = $changes;
 	}
 
 	/**
@@ -471,6 +480,103 @@ final class Abilities implements Service {
 				'readonly'    => false,
 				'destructive' => true,
 				'idempotent'  => true,
+			)
+		);
+
+		$post_only = array(
+			'type'                 => 'object',
+			'properties'           => array(
+				'post' => array(
+					'type'    => 'integer',
+					'minimum' => 1,
+				),
+			),
+			'required'             => array( 'post' ),
+			'additionalProperties' => false,
+		);
+		$with_over = $post_only;
+
+		$with_over['properties']['overwrite'] = array(
+			'type'        => 'boolean',
+			'description' => __( 'Go ahead even though the live post was edited after the copy was made. The live version stays as the undo.', 'axle-review' ),
+		);
+
+		$this->ability(
+			'request-change-review',
+			__( 'Ask for review of a change to a live post', 'axle-review' ),
+			__( 'Makes a working copy (a draft that points to the live post) of a published post. Create review links on the copy; the live post is not touched until the change is published.', 'axle-review' ),
+			$post_only,
+			array(
+				'type'       => 'object',
+				'properties' => array(
+					'copy'     => array( 'type' => 'integer' ),
+					'original' => array( 'type' => 'integer' ),
+				),
+			),
+			array( $this, 'request_change' ),
+			array( $this, 'can_request_change' ),
+			array(
+				'readonly'    => false,
+				'destructive' => false,
+				'idempotent'  => false,
+			)
+		);
+
+		$this->ability(
+			'publish-change',
+			__( 'Publish a reviewed change', 'axle-review' ),
+			__( 'Merges a working copy into its live post: the live post keeps its ID, URL, comments and terms and takes the copy\'s title, content, excerpt, meta and featured image. The copy\'s notes move to the live post. The publish gate must be satisfied. The live version before the merge is kept for the undo.', 'axle-review' ),
+			$with_over,
+			array(
+				'type'       => 'object',
+				'properties' => array(
+					'original' => array( 'type' => 'integer' ),
+					'notes'    => array( 'type' => 'integer' ),
+					'undo'     => array( 'type' => 'boolean' ),
+				),
+			),
+			array( $this, 'publish_change' ),
+			array( $this, 'can_publish_change' ),
+			array(
+				'readonly'    => false,
+				'destructive' => true,
+				'idempotent'  => false,
+			)
+		);
+
+		$this->ability(
+			'discard-change',
+			__( 'Discard a working copy', 'axle-review' ),
+			__( 'Deletes a working copy and its review links without publishing it. The live post is not touched. Discarding a copy that is gone changes nothing.', 'axle-review' ),
+			$post_only,
+			array(
+				'type'       => 'object',
+				'properties' => array( 'discarded' => array( 'type' => 'boolean' ) ),
+			),
+			array( $this, 'discard_change' ),
+			array( $this, 'can_discard_change' ),
+			array(
+				'readonly'    => false,
+				'destructive' => true,
+				'idempotent'  => true,
+			)
+		);
+
+		$this->ability(
+			'undo-change',
+			__( 'Undo the last published change', 'axle-review' ),
+			__( 'Puts a live post back to how it was before its last published change: title, content, excerpt, meta and featured image.', 'axle-review' ),
+			$with_over,
+			array(
+				'type'       => 'object',
+				'properties' => array( 'undone' => array( 'type' => 'boolean' ) ),
+			),
+			array( $this, 'undo_change' ),
+			array( $this, 'can_undo_change' ),
+			array(
+				'readonly'    => false,
+				'destructive' => true,
+				'idempotent'  => false,
 			)
 		);
 	}
@@ -950,5 +1056,103 @@ final class Abilities implements Service {
 
 		$link = $this->links->get( $id );
 		return $link ? Links::to_public( $link ) : array();
+	}
+
+	/**
+	 * Permission: may ask for review of a change to the post in the input.
+	 *
+	 * @param array|null $input Input.
+	 * @return bool
+	 */
+	public function can_request_change( $input = null ): bool {
+		$input = (array) $input;
+		return Changes::can_request( (int) ( $input['post'] ?? 0 ) );
+	}
+
+	/**
+	 * Permission: may publish the change in the copy in the input.
+	 *
+	 * @param array|null $input Input.
+	 * @return bool
+	 */
+	public function can_publish_change( $input = null ): bool {
+		$input = (array) $input;
+		return Changes::can_publish( (int) ( $input['post'] ?? 0 ) );
+	}
+
+	/**
+	 * Permission: may discard the copy in the input.
+	 *
+	 * @param array|null $input Input.
+	 * @return bool
+	 */
+	public function can_discard_change( $input = null ): bool {
+		$input = (array) $input;
+		$id    = (int) ( $input['post'] ?? 0 );
+		return ! Changes::is_copy( $id ) ? current_user_can( 'edit_posts' ) : current_user_can( 'delete_post', $id );
+	}
+
+	/**
+	 * Permission: may undo the last change of the post in the input.
+	 *
+	 * @param array|null $input Input.
+	 * @return bool
+	 */
+	public function can_undo_change( $input = null ): bool {
+		$input = (array) $input;
+		return Changes::can_undo( (int) ( $input['post'] ?? 0 ) );
+	}
+
+	/**
+	 * Execute: request-change-review.
+	 *
+	 * @param array|null $input Input.
+	 * @return array|\WP_Error
+	 */
+	public function request_change( $input = null ) {
+		$input = (array) $input;
+		return $this->changes->request( (int) ( $input['post'] ?? 0 ), get_current_user_id() );
+	}
+
+	/**
+	 * Execute: publish-change.
+	 *
+	 * @param array|null $input Input.
+	 * @return array|\WP_Error
+	 */
+	public function publish_change( $input = null ) {
+		$input = (array) $input;
+		return $this->changes->publish( (int) ( $input['post'] ?? 0 ), get_current_user_id(), ! empty( $input['overwrite'] ) );
+	}
+
+	/**
+	 * Execute: discard-change.
+	 *
+	 * @param array|null $input Input.
+	 * @return array|\WP_Error
+	 */
+	public function discard_change( $input = null ) {
+		$input = (array) $input;
+		$id    = (int) ( $input['post'] ?? 0 );
+		if ( ! Changes::is_copy( $id ) ) {
+			return array( 'discarded' => false );
+		}
+
+		$result = $this->changes->discard( $id, get_current_user_id() );
+
+		return is_wp_error( $result ) ? $result : array( 'discarded' => true );
+	}
+
+	/**
+	 * Execute: undo-change.
+	 *
+	 * @param array|null $input Input.
+	 * @return array|\WP_Error
+	 */
+	public function undo_change( $input = null ) {
+		$input  = (array) $input;
+		$result = $this->changes->undo( (int) ( $input['post'] ?? 0 ), get_current_user_id(), ! empty( $input['overwrite'] ) );
+
+		return is_wp_error( $result ) ? $result : array( 'undone' => true );
 	}
 }
