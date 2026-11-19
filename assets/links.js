@@ -1,5 +1,5 @@
 /**
- * Axle Review: Tools > Review Links and the network page.
+ * Axle Review: Dashboard > Notes > Review links and the network page.
  *
  *  - The copy button for a new link.
  *  - The in-place confirm step before anything that cannot be undone, in place of a browser dialog.

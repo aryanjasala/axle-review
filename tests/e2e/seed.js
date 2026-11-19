@@ -308,11 +308,43 @@ function seedLockedLink() {
 	return createLink( post, [ '--email=legal@example.com' ] );
 }
 
+/** A draft and a link with a password. */
+function seedPasswordLink() {
+	installFixture();
+	clearReview();
+	const post = createDraft();
+	return createLink( post, [ '--password=open-sesame' ] );
+}
+
 /** A draft and a revoked link. */
 function seedRevokedLink() {
 	const link = seedLink();
 	wp( 'axle-review', 'link', 'revoke', String( link.id ) );
 	return link;
+}
+
+/** A published post, for "Ask for review of a change". */
+function seedLivePost() {
+	installFixture();
+	clearReview();
+	removePosts();
+	createPeople();
+	const id = Number( wp( 'post', 'create', '--post_type=page', '--post_title=Pricing', `--post_content=${ blocks( [ 'Plans start at 12 dollars a month.', 'Every plan has a 14 day trial.' ], 'Pricing' ) }`, '--post_status=publish', '--post_author=1', '--porcelain' ) );
+	wpEval( `wp_update_post( array( 'ID' => ${ id } ) );` );
+	return { post: id };
+}
+
+/**
+ * A published page with a working copy that has a review link, one edit, and one open note.
+ * Plans change from 12 to 15 dollars in the copy.
+ */
+function seedWorkingCopy() {
+	const { post } = seedLivePost();
+	wp( 'option', 'update', 'axle_review_settings', '{"gate_enabled":true}', '--format=json' );
+	const copy = Number( wp( 'axle-review', 'change', 'request', String( post ), '--porcelain', '--user=admin' ) );
+	editPost( copy, '12 dollars', '15 dollars' );
+	const link = createLink( copy, [ '--label=Client' ] );
+	return { original: post, copy, link };
 }
 
 /** Only an empty site: no notes and no links. */
@@ -340,6 +372,9 @@ module.exports = {
 	seedLink,
 	seedLinkWithNote,
 	seedLockedLink,
+	seedPasswordLink,
+	seedLivePost,
+	seedWorkingCopy,
 	seedRevokedLink,
 	seedDecisions,
 	seedReturning,

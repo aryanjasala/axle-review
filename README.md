@@ -35,6 +35,7 @@ WordPress 6.9 added Notes: comments on blocks that editors reply to and resolve.
 
 - **Review links** from the editor's "Share for review" panel, the posts list, WP-CLI or an ability: expiry from an hour to 30 days, view once or a few times, an optional password, and an optional email lock with a one-time code. Only a hash of the link is stored
 - **Activity per link**: when it was opened, the browser family and how many notes came through it. Revoke one link, all of a post's links, or **pause every link** at once after a leak
+- **Review a change to a live page**: "Ask for review of a change" makes a working copy of a published post. Reviewers see it with "changed since live" marks, the publish gate waits for approval, and "Publish the change" merges it into the live post in one click: same ID, URL, comments and terms, with the copy's content, meta and featured image, its Notes moved over, and the old version kept for Undo
 - **Links die on their own** when the post is published, made private or trashed, and when the person who made them is deleted
 - **Notes on blocks for people without an account**: the reviewer clicks a block (or tabs to it), writes a note, and it is saved as a core Note on that block. Selected text travels as a quote. Works on phones
 - **Safe with an editor open**: the note shows up on its block in the open editor within seconds, and saving the older copy does not drop it
@@ -42,7 +43,7 @@ WordPress 6.9 added Notes: comments on blocks that editors reply to and resolve.
 - **Sign-off that notices later edits**: a reviewer approves or asks for changes, with their name and an optional comment. Each approval records a fingerprint of the blocks, title, excerpt and featured image it covered. Edit the post afterwards and the approval says "Edited since approval" and lists the blocks that changed. Ask the reviewer again with one click: they get a new link and see only what changed
 - **What changed since I last looked**: a reviewer who returns sees a bar such as "5 blocks changed since your visit on Monday", with next and previous buttons, changed blocks outlined, new blocks marked, removed blocks listed, and the earlier text of a block one click away. The earlier text comes from core revisions; with revisions off the changed blocks are still marked
 - **Review state where you work**: "2 of 3 approved" or "Changes requested by Priya" in the editor panel and on the posts list, with each decision, name and relative time. Decisions are mirrored as Notes on the post, so they show in Dashboard > Notes
-- **Dashboard > Notes**: every note on the site. Unresolved, Mentions me (7.1+), On my posts, From reviewers, Resolved, All. Reply, resolve and reopen from the list, bulk resolve, and a Notes column on the posts list
+- **Dashboard > Notes**: every note on the site, and the Review links you shared, in one menu item. Unresolved, Mentions me (7.1+), On my posts, From reviewers, Resolved, All, Review links. Reply, resolve and reopen from the list, bulk resolve, and a Notes column on the posts list
 - **Publish gate** (off by default): a post with open notes cannot be published or scheduled. Optionally it also needs a number of approvals, and ignores approvals given to an older version. Editors can publish anyway with a reason, which is logged on the post
 - **Alerts**: instant email, an hourly or daily digest, or nothing, per user, for reviewer notes and replies to your notes. Optional Slack webhook
 - **Abilities** so an AI agent can read notes, leave notes on blocks, check publish readiness and read the review state (agents can never approve for a reviewer); **WP-CLI** for everything; **privacy** export and erase; a **Site Health** check that spots page caches serving review pages
@@ -77,6 +78,14 @@ wp axle-review gate check 42   # exits 1 while open notes would hold publishing 
 wp axle-review review status 42   # who approved, who asked for changes, what was edited since
 wp axle-review link ask-again 7   # a new link for a reviewer whose approval is out of date
 ```
+Send a change to a live page for review, then put it live:
+
+```sh
+wp axle-review change request 42 --user=maria
+wp axle-review link create 57 --label="Client"   # 57 is the copy
+wp axle-review change publish 57 --user=maria     # after approval; undo with: wp axle-review change undo 42
+```
+
 
 ## Screenshots
 
@@ -90,7 +99,7 @@ wp axle-review link ask-again 7   # a new link for a reviewer whose approval is 
     <td width="50%" valign="top"><img src=".wordpress-org/screenshot-4.png" alt="The editor before publishing, with the gate holding back a post that has open notes"><br><sub>The editor before publishing, with the gate holding back a post that has open notes</sub></td>
   </tr>
   <tr>
-    <td width="50%" valign="top"><img src=".wordpress-org/screenshot-5.png" alt="Tools > Review Links: every link on the site, with the pause button"><br><sub>Tools > Review Links: every link on the site, with the pause button</sub></td>
+    <td width="50%" valign="top"><img src=".wordpress-org/screenshot-5.png" alt="Dashboard > Notes > Review links: every link on the site, with the pause button"><br><sub>Dashboard > Notes > Review links: every link on the site, with the pause button</sub></td>
     <td width="50%" valign="top"><img src=".wordpress-org/screenshot-6.png" alt="Settings > Writing > Review: the publish gate, link defaults and Slack"><br><sub>Settings > Writing > Review: the publish gate, link defaults and Slack</sub></td>
   </tr>
 </table>
@@ -99,7 +108,7 @@ wp axle-review link ask-again 7   # a new link for a reviewer whose approval is 
 
 | Doc | What it covers |
 | --- | --- |
-| [Reference](docs/REFERENCE.md) | Links, the review page, sign-off and what changed since a visit, how reviewer notes become core Notes, the inbox, the gate, alerts, hooks, abilities, REST, WP-CLI, data and privacy |
+| [Reference](docs/REFERENCE.md) | Links, the review page, review of a change to a live page, sign-off and what changed since a visit, how reviewer notes become core Notes, the inbox, the gate, alerts, hooks, abilities, REST, WP-CLI, data and privacy |
 | [Development](docs/DEVELOPMENT.md) | Local setup, commands and tests |
 | [Contributing](docs/CONTRIBUTING.md) | Pull requests, required checks and PR titles |
 | [Releasing](docs/RELEASING.md) | How merged pull requests become releases |
@@ -123,6 +132,7 @@ src/
 ├── Fingerprint.php       what a reviewer saw, and what changed since
 ├── Approvals.php         approve, request changes, outdated approvals
 ├── Visits.php            what changed since a reviewer's last visit
+├── Changes.php           working copies: ask for review of a change, merge, undo
 ├── Notes.php             core Notes: guest notes, resolve, queries
 ├── Attacher.php          puts reviewer notes on their block
 ├── Gate.php              the publish gate
@@ -158,14 +168,14 @@ Small plugins that each fill one gap in WordPress, all free with no pro version.
 | <img src="https://raw.githubusercontent.com/aryanjasala/agent-governance/main/.wordpress-org/icon-128x128.png" alt="" width="32"> | [Agent Governance](https://github.com/aryanjasala/agent-governance) | Hold risky AI agent calls for approval, preview what they change, and roll back a session |
 | <img src="https://raw.githubusercontent.com/aryanjasala/axle-ai-guard/main/.wordpress-org/icon-128x128.png" alt="" width="32"> | [Axle AI Guard](https://github.com/aryanjasala/axle-ai-guard) | See and control every AI call your plugins make: cost, data sent, budgets and a kill switch |
 | <img src="https://raw.githubusercontent.com/aryanjasala/axle-config-sync/main/.wordpress-org/icon-128x128.png" alt="" width="32"> | [Axle Config Sync](https://github.com/aryanjasala/axle-config-sync) | Keep settings in git, diff them against the live site, apply with a preview and undo |
-| <img src="https://raw.githubusercontent.com/aryanjasala/axle-leftovers/main/.wordpress-org/icon-128x128.png" alt="" width="32"> | [Axle Leftovers](https://github.com/aryanjasala/axle-leftovers) | Find what deleted plugins left behind, see who owns it and why, and clean it up with undo |
+| <img src="https://raw.githubusercontent.com/aryanjasala/axle-leftovers/main/.wordpress-org/icon-128x128.png" alt="" width="32"> | [Axle Leftovers](https://github.com/aryanjasala/axle-leftovers) | Find what deleted plugins and themes left behind, see who owns it and why, and clean it up with undo |
 | <img src="https://raw.githubusercontent.com/aryanjasala/axle-license-tracker/main/.wordpress-org/icon-128x128.png" alt="" width="32"> | [Axle License Tracker](https://github.com/aryanjasala/axle-license-tracker) | See which premium plugins are licensed, which lapsed and stopped getting updates, and what renews when |
 | <img src="https://raw.githubusercontent.com/aryanjasala/axle-runtime-doctor/main/.wordpress-org/icon-128x128.png" alt="" width="32"> | [Axle Runtime Doctor](https://github.com/aryanjasala/axle-runtime-doctor) | Check OPcache coverage, the object cache, PHP support and limits, cron and more, with the fix for your host |
 | <img src="https://raw.githubusercontent.com/aryanjasala/axle-smoke-test/main/.wordpress-org/icon-128x128.png" alt="" width="32"> | [Axle Smoke Test](https://github.com/aryanjasala/axle-smoke-test) | Check key pages after every update or deploy, see what broke and roll it back |
 | <img src="https://raw.githubusercontent.com/aryanjasala/block-doctor/main/.wordpress-org/icon-128x128.png" alt="" width="32"> | [Block Doctor](https://github.com/aryanjasala/block-doctor) | Scan the site for broken blocks and fix them in bulk, with undo. See which posts use each block before you switch a plugin off |
-| <img src="https://raw.githubusercontent.com/aryanjasala/block-theme-ops/main/.wordpress-org/icon-128x128.png" alt="" width="32"> | [Block Theme Ops](https://github.com/aryanjasala/block-theme-ops) | Find Site Editor changes that override your theme files, see the diff, reset them or send them to Git |
+| <img src="https://raw.githubusercontent.com/aryanjasala/block-theme-ops/main/.wordpress-org/icon-128x128.png" alt="" width="32"> | [Block Theme Ops](https://github.com/aryanjasala/block-theme-ops) | Find Site Editor changes that override your theme files, see the diff, reset them, send them to Git, move them to another site or lock them |
 | <img src="https://raw.githubusercontent.com/aryanjasala/role-right-sizer/main/.wordpress-org/icon-128x128.png" alt="" width="32"> | [Role Right-Sizer](https://github.com/aryanjasala/role-right-sizer) | Recommends the smallest role each user needs, from what they actually do |
-| <img src="https://raw.githubusercontent.com/aryanjasala/update-rehearsal/main/.wordpress-org/icon-128x128.png" alt="" width="32"> | [Update Rehearsal](https://github.com/aryanjasala/update-rehearsal) | Try plugin, theme, core and PHP updates on a disposable copy of your site in WordPress Playground first |
+| <img src="https://raw.githubusercontent.com/aryanjasala/update-rehearsal/main/.wordpress-org/icon-128x128.png" alt="" width="32"> | [Update Rehearsal](https://github.com/aryanjasala/update-rehearsal) | Try plugin, theme, core and PHP updates, a new plugin, or life without one, on a disposable copy of your site in WordPress Playground first |
 | <img src="https://raw.githubusercontent.com/aryanjasala/user-session-manager/main/.wordpress-org/icon-128x128.png" alt="" width="32"> | [User Session Manager](https://github.com/aryanjasala/user-session-manager) | See every device signed in, sign out one, and limit sessions per role |
 
 ## License

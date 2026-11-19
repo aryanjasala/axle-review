@@ -64,7 +64,7 @@ final class LinksTable extends \WP_List_Table {
 				'singular' => 'link',
 				'plural'   => 'links',
 				'ajax'     => false,
-				'screen'   => 'tools_page_axle-review-links',
+				'screen'   => 'dashboard_page_axle-review-notes',
 			)
 		);
 		$this->links   = $links;
@@ -99,6 +99,21 @@ final class LinksTable extends \WP_List_Table {
 	 */
 	protected function get_bulk_actions(): array {
 		return array( 'revoke' => __( 'Revoke', 'axle-review' ) );
+	}
+
+	/**
+	 * The filters, next to Bulk actions as on Posts and Comments.
+	 *
+	 * @param string $which top or bottom.
+	 */
+	protected function extra_tablenav( $which ): void {
+		if ( 'top' !== $which ) {
+			return;
+		}
+
+		echo '<div class="alignleft actions">';
+		LinksPage::filter_controls( $this->filters );
+		echo '</div>';
 	}
 
 	/**

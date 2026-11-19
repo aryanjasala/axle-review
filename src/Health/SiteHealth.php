@@ -9,6 +9,7 @@ namespace AryanX\Axle\Review\Health;
 
 use AryanX\Axle\Review\Admin\LinksPage;
 use AryanX\Axle\Review\Alerts;
+use AryanX\Axle\Review\Changes;
 use AryanX\Axle\Review\Gate;
 use AryanX\Axle\Review\Links;
 use AryanX\Axle\Review\Rest\GuestRoutes;
@@ -117,6 +118,12 @@ final class SiteHealth implements Service {
 		if ( $stuck ) {
 			/* translators: %d: number of posts. */
 			$problems[] = array( 'recommended', sprintf( _n( 'The publish gate holds back %d post that has not changed in two weeks. Its open notes may need someone to resolve them.', 'The publish gate holds back %d posts that have not changed in two weeks. Their open notes may need someone to resolve them.', $stuck, 'axle-review' ), $stuck ) );
+		}
+
+		$stranded = count( Changes::stranded() );
+		if ( $stranded ) {
+			/* translators: %d: number of working copies. */
+			$problems[] = array( 'recommended', sprintf( _n( '%d working copy points to a post that is gone or no longer published, so its change cannot go live. Delete the copy, or publish the post again.', '%d working copies point to posts that are gone or no longer published, so their changes cannot go live. Delete the copies, or publish the posts again.', $stranded, 'axle-review' ), $stranded ) );
 		}
 
 		return $problems;

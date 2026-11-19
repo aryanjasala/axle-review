@@ -40,6 +40,11 @@ function axle_review_uninstall_site(): void {
 		delete_metadata( 'comment', 0, $axle_review_key, '', true );
 	}
 
+	// Working copies stay as ordinary drafts; only the plugin's own meta goes. The undo records go too.
+	foreach ( array( '_axr_change_of', '_axr_change_copy', '_axr_change_base', '_axr_change_undo' ) as $axle_review_key ) {
+		delete_metadata( 'post', 0, $axle_review_key, '', true );
+	}
+
 	foreach ( array( 'axle_review_links', 'axle_review_events' ) as $axle_review_table ) {
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.DirectDatabaseQuery.SchemaChange -- Removing the plugin's own table on uninstall.
 		$wpdb->query( $wpdb->prepare( 'DROP TABLE IF EXISTS %i', $wpdb->prefix . $axle_review_table ) );

@@ -105,3 +105,27 @@
 	gap: 8px;
 	margin-top: 16px;
 }
+
+.axr-change {
+	margin: 0 0 16px;
+}
+
+.axr-change p {
+	margin: 0 0 8px;
+}
+
+.axr-change__actions {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 12px;
+}
+
+.axr-create-modal .axr-create__more {
+	margin: 0 0 16px;
+}
+
+.axr-create-modal .components-base-control,
+.axr-create-modal .components-toggle-control {
+	margin-bottom: 16px;
+}

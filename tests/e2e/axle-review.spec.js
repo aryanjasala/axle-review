@@ -75,11 +75,14 @@ test.describe( 'Axle Review', () => {
 		await page.getByRole( 'button', { name: 'Share for review' } ).click();
 		await page.getByRole( 'button', { name: 'Share for review' } ).click();
 
-		await page.getByLabel( 'Label' ).fill( 'Founder' );
-		await page.getByLabel( 'Expires after' ).selectOption( '7200' );
-		await page.getByLabel( 'Opens' ).selectOption( '1' );
-		await page.getByRole( 'button', { name: 'Create link' } ).click();
-		const urlField = page.getByLabel( 'Review link' );
+		await page.getByRole( 'button', { name: 'Create a review link' } ).click();
+		const dialog = page.getByRole( 'dialog', { name: 'Create a review link' } );
+		await dialog.getByLabel( 'Label' ).fill( 'Founder' );
+		await dialog.getByLabel( 'Expires after' ).selectOption( '7200' );
+		await dialog.getByRole( 'button', { name: 'More options' } ).click();
+		await dialog.getByLabel( 'Opens' ).selectOption( '1' );
+		await dialog.getByRole( 'button', { name: 'Create link' } ).click();
+		const urlField = page.getByLabel( 'Review link', { exact: true } );
 		await expect( urlField ).toHaveValue( /axle_review=/ );
 		const url = await urlField.inputValue();
 		expect( await page.evaluate( () => window.axrCreated ) ).toBe( url );
@@ -114,7 +117,7 @@ test.describe( 'Axle Review', () => {
 		const second = await guest( browser );
 		const refused = await second.page.goto( url );
 		expect( refused.status() ).toBe( 404 );
-		await expect( second.page.locator( '#axr-gate' ) ).toContainText( 'already used' );
+		await expect( second.page.locator( '#login' ) ).toContainText( 'already used' );
 		await expect( second.page.getByText( 'Spring menu announcement' ) ).toHaveCount( 0 );
 		await second.context.close();
 
@@ -126,7 +129,7 @@ test.describe( 'Axle Review', () => {
 		const stranger = await guest( browser );
 		const unknown = await stranger.page.goto( '/?axle_review=' + 'x'.repeat( 43 ) );
 		expect( unknown.status() ).toBe( 404 );
-		await expect( stranger.page.locator( '#axr-gate' ) ).toContainText( 'does not work' );
+		await expect( stranger.page.locator( '#login' ) ).toContainText( 'does not work' );
 		await stranger.context.close();
 	} );
 
@@ -136,32 +139,48 @@ test.describe( 'Axle Review', () => {
 		const { context, page } = await guest( browser );
 
 		await page.goto( url );
-		await expect( page.getByRole( 'heading', { name: 'Check your email' } ) ).toBeVisible();
+		await expect( page ).toHaveTitle( /Check your email/ );
 		await expect( page.getByText( 'Legal terms update' ) ).toHaveCount( 0 );
-		await page.getByRole( 'button', { name: 'Email me a code' } ).click();
-		await expect( page.getByRole( 'status' ) ).toContainText( 'We sent a code' );
+		// Step 1 shows the masked address and one button, not the code field.
+		await expect( page.locator( '#login' ) ).toContainText( 'l\u2022\u2022\u2022@example.com' );
+		await expect( page.locator( '#login' ) ).not.toContainText( 'legal@example.com' );
+		await expect( page.getByLabel( 'Code' ) ).toHaveCount( 0 );
+		await page.getByRole( 'button', { name: /Email me a code/ } ).click();
+		await expect( page ).toHaveTitle( /Enter your code/ );
+		await expect( page.locator( '#login-message' ) ).toContainText( 'We sent a code' );
+		await expect( page.getByLabel( 'Code' ) ).toHaveAttribute( 'maxlength', '6' );
+		await expect( page.getByLabel( 'Code' ) ).toHaveAttribute( 'pattern', '[0-9]{6}' );
 
+		// A reload of step 2 does not send another email.
+		await page.reload();
 		const sent = mail().filter( ( item ) => item.to === 'legal@example.com' );
 		expect( sent ).toHaveLength( 1 );
 		expect( sent[ 0 ].subject ).toContain( 'Your review code' );
 		const code = sent[ 0 ].message.match( /\b(\d{6})\b/ )[ 1 ];
 		const wrong = String( ( Number( code ) + 1 ) % 1000000 ).padStart( 6, '0' );
 
+		// "Send a new code" twice: the first email's code still works (the last two codes are valid).
+		await page.getByRole( 'button', { name: 'Send a new code' } ).click();
+		await expect( page.getByLabel( 'Code' ) ).toBeVisible();
+		expect( mail().filter( ( item ) => item.to === 'legal@example.com' ) ).toHaveLength( 2 );
+
 		for ( let i = 0; i < 5; i++ ) {
 			await page.getByLabel( 'Code' ).fill( wrong );
 			await page.getByRole( 'button', { name: 'Open the page' } ).click();
-			await expect( page.getByRole( 'alert' ) ).toBeVisible();
+			await expect( page.locator( '#login_error' ) ).toBeVisible();
 		}
 		// Locked: even the right code is refused now.
 		await page.getByLabel( 'Code' ).fill( code );
 		await page.getByRole( 'button', { name: 'Open the page' } ).click();
-		await expect( page.getByRole( 'alert' ) ).toContainText( 'Too many tries' );
+		await expect( page.locator( '#login_error' ) ).toContainText( 'Too many tries' );
 		expect( one( `SELECT COUNT(*) FROM wp_axle_review_events WHERE link_id = ${ id } AND type = 'code_fail'` ) ).toBe( '5' );
 		expect( link( id ).views ).toBe( 0 );
+		// The link's creator was told once.
+		expect( mail().filter( ( item ) => item.subject.includes( 'keeps failing' ) ) ).toHaveLength( 1 );
 
 		// After the lockout (cleared here), a new code opens the page.
 		wp( 'transient', 'delete', '--all' );
-		await page.getByRole( 'button', { name: 'Email me a code' } ).click();
+		await page.getByRole( 'button', { name: 'Send a new code' } ).click();
 		const fresh = mail().filter( ( item ) => item.to === 'legal@example.com' ).pop().message.match( /\b(\d{6})\b/ )[ 1 ];
 		await page.getByLabel( 'Code' ).fill( fresh );
 		await page.getByRole( 'button', { name: 'Open the page' } ).click();
@@ -172,7 +191,7 @@ test.describe( 'Axle Review', () => {
 		// A forwarded link still asks for the code.
 		const other = await guest( browser );
 		await other.page.goto( url );
-		await expect( other.page.getByRole( 'heading', { name: 'Check your email' } ) ).toBeVisible();
+		await expect( other.page ).toHaveTitle( /Check your email/ );
 		await other.context.close();
 		await context.close();
 	} );
@@ -184,7 +203,7 @@ test.describe( 'Axle Review', () => {
 		await page.goto( url );
 		await page.getByLabel( 'Password' ).fill( 'wrong' );
 		await page.getByRole( 'button', { name: 'Open the page' } ).click();
-		await expect( page.getByRole( 'alert' ) ).toContainText( 'wrong' );
+		await expect( page.locator( '#login_error' ) ).toContainText( 'wrong' );
 		await page.getByLabel( 'Password' ).fill( 'open-sesame' );
 		await page.getByRole( 'button', { name: 'Open the page' } ).click();
 		await expect( page.getByRole( 'heading', { name: 'Board update' } ) ).toBeVisible();
@@ -328,7 +347,7 @@ test.describe( 'Axle Review', () => {
 		const seeded = await seedReview();
 
 		await page.goto( '/wp-admin/index.php?page=axle-review-notes' );
-		await expect( page.locator( '.axr-inbox .nav-tab-wrapper .nav-tab-active' ) ).toContainText( 'Unresolved' );
+		await expect( page.locator( '.axr-inbox .subsubsub .current' ) ).toContainText( 'Unresolved' );
 		const row = page.locator( 'tr', { hasText: 'Guest: Leela (Legal)' } );
 		await expect( row ).toContainText( 'Spring menu announcement' );
 		await expect( row ).toContainText( 'Paragraph' );
@@ -388,7 +407,7 @@ test.describe( 'Axle Review', () => {
 		if ( ! hasMentions() ) {
 			const { context, page } = await logInAs( browser, 'maria', 'demo-password-123' );
 			await page.goto( '/wp-admin/index.php?page=axle-review-notes' );
-			await expect( page.locator( '.axr-inbox .nav-tab-wrapper' ) ).not.toContainText( 'Mentions me' );
+			await expect( page.locator( '.axr-inbox .subsubsub' ) ).not.toContainText( 'Mentions me' );
 			await context.close();
 			return;
 		}
@@ -403,7 +422,7 @@ test.describe( 'Axle Review', () => {
 
 		const { context, page } = await logInAs( browser, 'maria', 'demo-password-123' );
 		await page.goto( '/wp-admin/index.php?page=axle-review-notes' );
-		await page.locator( '.axr-inbox .nav-tab-wrapper' ).getByRole( 'link', { name: 'Mentions me' } ).click();
+		await page.locator( '.axr-inbox .subsubsub' ).getByRole( 'link', { name: 'Mentions me' } ).click();
 		await expect( page.locator( 'tbody' ) ).toContainText( 'Can you check the prices?' );
 		await context.close();
 	} );
@@ -484,10 +503,10 @@ test.describe( 'Axle Review', () => {
 
 		const visitor = await guest( browser );
 		await visitor.page.goto( first.url );
-		await expect( visitor.page.locator( '#axr-gate' ) ).toContainText( 'turned off' );
+		await expect( visitor.page.locator( '#login' ) ).toContainText( 'turned off' );
 
-		// Pause every link from Tools > Review Links.
-		await page.goto( '/wp-admin/tools.php?page=axle-review-links' );
+		// Pause every link from the Review links view.
+		await page.goto( '/wp-admin/index.php?page=axle-review-notes&view=links' );
 		await page.getByRole( 'button', { name: 'Pause all links' } ).click();
 		const pause = page.getByRole( 'group' ).filter( { hasText: 'You can undo this' } );
 		await expect( pause ).toBeVisible();
@@ -495,16 +514,16 @@ test.describe( 'Axle Review', () => {
 		await expect( page.locator( '.notice-success' ) ).toContainText( 'Every review link is paused.' );
 		expect( wp( 'option', 'get', 'axle_review_paused', '--format=json' ) ).toContain( '"by":1' );
 		await visitor.page.goto( second.url );
-		await expect( visitor.page.locator( '#axr-gate' ) ).toContainText( 'paused' );
+		await expect( visitor.page.locator( '#login' ) ).toContainText( 'paused' );
 
 		await expect( page.locator( '.notice-success' ).getByRole( 'button', { name: /Undo: resume all links/ } ) ).toBeVisible();
 		await page.getByRole( 'button', { name: 'Resume all links', exact: true } ).click();
 		await visitor.page.goto( second.url );
 		await expect( visitor.page.getByRole( 'heading', { name: 'Spring menu announcement' } ) ).toBeVisible();
 
-		// Bulk revoke on the Tools screen.
+		// Bulk revoke on the Review links view.
 		const third = createLink( postId, [ '--label=Press' ] );
-		await page.goto( '/wp-admin/tools.php?page=axle-review-links&status=active' );
+		await page.goto( '/wp-admin/index.php?page=axle-review-notes&view=links&status=active' );
 
 		// The row action asks first too, in place.
 		const pressRow = page.locator( '#the-list tr', { hasText: 'Press' } );
@@ -532,18 +551,18 @@ test.describe( 'Axle Review', () => {
 		wp( 'post', 'update', String( postId ), '--post_status=publish' );
 		expect( link( fourth.id ).status ).toBe( 'revoked' );
 		await visitor.page.goto( fourth.url );
-		await expect( visitor.page.locator( '#axr-gate' ) ).toBeVisible();
+		await expect( visitor.page.locator( '#login' ) ).toBeVisible();
 		await visitor.context.close();
 	} );
 
-	test( 'Tools > Review Links creates a link for a post and shows it once', async ( { page } ) => {
+	test( 'The Review links view creates a link for a post and shows it once', async ( { page } ) => {
 		const postId = createDraft( 'Spring menu announcement', blocks(), 'page' );
 		await page.goto( '/wp-admin/edit.php?post_type=page' );
 		const row = page.locator( `#post-${ postId }` );
 		await row.hover();
 		await row.getByRole( 'link', { name: 'Share for review' } ).click();
 		await page.getByLabel( 'Label' ).fill( 'Agency' );
-		await page.getByLabel( 'Email the link to' ).fill( 'studio@example.com' );
+		await page.getByLabel( 'Only this person can open it' ).fill( 'studio@example.com' );
 		await page.getByRole( 'button', { name: 'Create link' } ).click();
 		const field = page.getByLabel( 'Review link' );
 		await expect( field ).toHaveValue( /axle_review=/ );
@@ -721,7 +740,7 @@ test.describe( 'Axle Review', () => {
 		// The old link no longer opens; the new one shows only what changed since the approval.
 		const stranger = await guest( browser );
 		await stranger.page.goto( url );
-		await expect( stranger.page.locator( '#axr-gate' ) ).toContainText( 'does not work' );
+		await expect( stranger.page.locator( '#login' ) ).toContainText( 'does not work' );
 		await stranger.context.close();
 
 		await reviewer.page.goto( fresh );
@@ -770,7 +789,7 @@ test.describe( 'Axle Review', () => {
 		await expect( page.locator( `#post-${ postId } .column-axr_review` ) ).toContainText( 'Changes requested by Sam Wu' );
 		await page.goto( '/wp-admin/index.php?page=axle-review-notes&view=guests' );
 		await expect( page.locator( '#the-list' ) ).toContainText( 'Changes requested' );
-		await page.goto( '/wp-admin/tools.php?page=axle-review-links' );
+		await page.goto( '/wp-admin/index.php?page=axle-review-notes&view=links' );
 		await expect( page.locator( '#the-list tr', { hasText: 'Marketing' } ) ).toContainText( 'Changes requested' );
 
 		// The reviewer's own list of notes never shows the mirrored decision.
@@ -1006,7 +1025,7 @@ test.describe( 'Axle Review', () => {
 		await expect( page.locator( 'tr[data-slug="axle-review"] .row-actions, tr[data-plugin^="axle-review/"] .row-actions' ).getByRole( 'link', { name: 'Review Links' } ) ).toBeVisible();
 
 		// Tools > Review Links: Get started with the first step open, then hidden for this user.
-		await page.goto( '/wp-admin/tools.php?page=axle-review-links' );
+		await page.goto( '/wp-admin/index.php?page=axle-review-notes&view=links' );
 		const steps = page.locator( '.axr-steps' );
 		await expect( steps ).toContainText( 'Get started' );
 		await expect( steps.locator( '.axle-step' ) ).toHaveCount( 3 );
@@ -1045,7 +1064,7 @@ test.describe( 'Axle Review', () => {
 
 	test( 'Tools > Review Links shows answers, and Ask again gives the reviewer a new link', async ( { page } ) => {
 		const { post, legal } = require( './seed' ).seedDecisions();
-		await page.goto( '/wp-admin/tools.php?page=axle-review-links' );
+		await page.goto( '/wp-admin/index.php?page=axle-review-notes&view=links' );
 		const row = page.locator( '#the-list tr', { hasText: 'Legal review' } );
 		await expect( row ).toContainText( 'Approved' );
 		await expect( row ).toContainText( 'Edited since approval' );
@@ -1057,7 +1076,7 @@ test.describe( 'Axle Review', () => {
 		await page.goto( '/wp-admin/edit.php?post_status=draft&post_type=post' );
 		await expect( page.locator( `#post-${ post } .column-axr_review` ) ).toContainText( 'Changes requested by Sam Wu' );
 
-		await page.goto( '/wp-admin/tools.php?page=axle-review-links' );
+		await page.goto( '/wp-admin/index.php?page=axle-review-notes&view=links' );
 		await row.hover();
 		await row.getByRole( 'link', { name: 'Ask again' } ).click();
 		await expect( page.locator( '.axr-new-link' ) ).toContainText( 'The reviewer has a new link' );

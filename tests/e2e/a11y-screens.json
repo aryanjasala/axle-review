@@ -23,34 +23,34 @@
       "cleanup": [{ "js": "seed.js", "call": "unseedReview" }]
     },
     {
-      "name": "Tools > Review Links, no links",
+      "name": "Dashboard > Notes > Review links, no links",
       "setup": [{ "js": "seed.js", "call": "seedEmpty" }],
-      "url": "/wp-admin/tools.php?page=axle-review-links"
+      "url": "/wp-admin/index.php?page=axle-review-notes&view=links"
     },
     {
-      "name": "Tools > Review Links with links and the create form",
+      "name": "Dashboard > Notes > Review links with links and the create form",
       "setup": [{ "js": "seed.js", "call": "seedReview", "save": "s" }],
-      "url": "/wp-admin/tools.php?page=axle-review-links&post_id={s.menu}",
+      "url": "/wp-admin/index.php?page=axle-review-notes&view=links&post_id={s.menu}",
       "steps": [{ "waitFor": ".axr-card" }],
       "cleanup": [{ "js": "seed.js", "call": "unseedReview" }]
     },
     {
-      "name": "Tools > Review Links, a new link shown once",
+      "name": "Dashboard > Notes > Review links, a new link shown once",
       "setup": [{ "js": "seed.js", "call": "seedReview", "save": "s" }],
-      "url": "/wp-admin/tools.php?page=axle-review-links&post_id={s.shipping}",
+      "url": "/wp-admin/index.php?page=axle-review-notes&view=links&post_id={s.shipping}",
       "steps": [{ "fill": "#axr-label", "value": "Press" }, { "click": ".axr-card input[type=submit]" }, { "waitFor": ".axr-new-link" }],
       "cleanup": [{ "js": "seed.js", "call": "unseedReview" }]
     },
     {
-      "name": "Tools > Review Links, paused",
+      "name": "Dashboard > Notes > Review links, paused",
       "setup": [{ "js": "seed.js", "call": "seedReview", "save": "s" }, ["axle-review", "link", "pause"]],
-      "url": "/wp-admin/tools.php?page=axle-review-links",
+      "url": "/wp-admin/index.php?page=axle-review-notes&view=links",
       "cleanup": [["axle-review", "link", "resume"], { "js": "seed.js", "call": "unseedReview" }]
     },
     {
       "name": "A link's activity",
       "setup": [{ "js": "seed.js", "call": "seedReview", "save": "s" }],
-      "url": "/wp-admin/tools.php?page=axle-review-links&activity={s.legal.id}",
+      "url": "/wp-admin/index.php?page=axle-review-notes&view=links&activity={s.legal.id}",
       "steps": [{ "waitFor": ".axr-activity" }],
       "cleanup": [{ "js": "seed.js", "call": "unseedReview" }]
     },
@@ -84,7 +84,7 @@
       "name": "Editor: a new link shown once",
       "setup": [{ "js": "seed.js", "call": "seedReview", "save": "s" }],
       "editor": "{s.shipping}",
-      "steps": [{ "evaluate": "(() => { wp.data.dispatch( 'core/edit-post' ).openGeneralSidebar( 'edit-post/document' ); if ( ! wp.data.select( 'core/editor' ).isEditorPanelOpened( 'axle-review/axle-review-share' ) ) { wp.data.dispatch( 'core/editor' ).toggleEditorPanelOpened( 'axle-review/axle-review-share' ); } })()" }, { "waitFor": ".axr-share .axr-create" }, { "click": ".axr-create__submit" }, { "waitFor": ".axr-new-url" }],
+      "steps": [{ "evaluate": "(() => { wp.data.dispatch( 'core/edit-post' ).openGeneralSidebar( 'edit-post/document' ); if ( ! wp.data.select( 'core/editor' ).isEditorPanelOpened( 'axle-review/axle-review-share' ) ) { wp.data.dispatch( 'core/editor' ).toggleEditorPanelOpened( 'axle-review/axle-review-share' ); } })()" }, { "waitFor": ".axr-share .axr-create__open" }, { "click": ".axr-create__open" }, { "click": ".axr-create__submit" }, { "waitFor": ".axr-new-url" }],
       "include": [".axr-share"],
       "cleanup": [{ "js": "seed.js", "call": "unseedReview" }]
     },
@@ -121,37 +121,37 @@
       "include": [".axr-panel"]
     },
     {
-      "name": "Tools > Review Links, answers and Ask again",
+      "name": "Dashboard > Notes > Review links, answers and Ask again",
       "setup": [{"js": "seed.js", "call": "seedDecisions", "save": "s"}],
-      "url": "/wp-admin/tools.php?page=axle-review-links",
+      "url": "/wp-admin/index.php?page=axle-review-notes&view=links",
       "steps": [{"waitFor": "#the-list tr"}],
       "cleanup": [{"js": "seed.js", "call": "unseedReview"}]
     },
     {
-      "name": "Tools > Review Links, asking before a revoke",
+      "name": "Dashboard > Notes > Review links, asking before a revoke",
       "setup": [{"js": "seed.js", "call": "seedDecisions", "save": "s"}],
-      "url": "/wp-admin/tools.php?page=axle-review-links",
+      "url": "/wp-admin/index.php?page=axle-review-notes&view=links",
       "steps": [{"hover": "#the-list tr"}, {"click": "#the-list tr .row-actions .submitdelete"}, {"waitFor": ".axle-confirm"}],
       "cleanup": [{"js": "seed.js", "call": "unseedReview"}]
     },
     {
-      "name": "Tools > Review Links, asking before a bulk revoke",
+      "name": "Dashboard > Notes > Review links, asking before a bulk revoke",
       "setup": [{"js": "seed.js", "call": "seedDecisions", "save": "s"}],
-      "url": "/wp-admin/tools.php?page=axle-review-links",
+      "url": "/wp-admin/index.php?page=axle-review-notes&view=links",
       "steps": [{"click": "#cb-select-all-1"}, {"evaluate": "document.querySelector( '#bulk-action-selector-top' ).value = 'revoke'"}, {"click": "#doaction"}, {"waitFor": ".axle-confirm"}],
       "cleanup": [{"js": "seed.js", "call": "unseedReview"}]
     },
     {
-      "name": "Tools > Review Links, a reviewer asked again",
+      "name": "Dashboard > Notes > Review links, a reviewer asked again",
       "setup": [{"js": "seed.js", "call": "seedDecisions", "save": "s"}],
-      "url": "/wp-admin/tools.php?page=axle-review-links",
+      "url": "/wp-admin/index.php?page=axle-review-notes&view=links",
       "steps": [{"hover": "#the-list tr:has(a[href*=ask_again])"}, {"click": "#the-list tr:has(a[href*=ask_again]) .row-actions a[href*=ask_again]"}, {"waitFor": ".axr-new-link"}],
       "cleanup": [{"js": "seed.js", "call": "unseedReview"}]
     },
     {
-      "name": "Tools > Review Links, links revoked",
+      "name": "Dashboard > Notes > Review links, links revoked",
       "setup": [{"js": "seed.js", "call": "seedDecisions", "save": "s"}, ["axle-review", "link", "revoke", "--post={s.post}"]],
-      "url": "/wp-admin/tools.php?page=axle-review-links&axr_revoked=3",
+      "url": "/wp-admin/index.php?page=axle-review-notes&view=links&axr_revoked=3",
       "cleanup": [{"js": "seed.js", "call": "unseedReview"}]
     },
     {
@@ -213,26 +213,81 @@
       "cleanup": [{"js": "seed.js", "call": "unseedReview"}]
     },
     {
-      "name": "Review page: email code form",
+      "name": "Review page: email code, step 1",
       "setup": [{ "js": "seed.js", "call": "seedLockedLink", "save": "link" }],
       "loggedOut": true,
       "url": "{link.path}",
-      "include": ["#axr-gate"]
+      "include": ["#login"]
+    },
+    {
+      "name": "Review page: email code, step 2",
+      "setup": [{ "js": "seed.js", "call": "seedLockedLink", "save": "link" }],
+      "loggedOut": true,
+      "url": "{link.path}&axr_sent=1",
+      "include": ["#login"]
     },
     {
       "name": "Review page: wrong code",
       "setup": [{ "js": "seed.js", "call": "seedLockedLink", "save": "link" }],
       "loggedOut": true,
+      "url": "{link.path}&axr_sent=1",
+      "steps": [{ "fill": "#axr-code", "value": "000000" }, { "click": "#axr-code-form button[type=submit]" }, { "waitFor": "#login_error" }],
+      "include": ["#login"]
+    },
+    {
+      "name": "Review page: password",
+      "setup": [{ "js": "seed.js", "call": "seedPasswordLink", "save": "link" }],
+      "loggedOut": true,
       "url": "{link.path}",
-      "steps": [{ "fill": "#axr-code", "value": "000000" }, { "click": "form:has(#axr-code) button" }, { "waitFor": ".axr-gate__error" }],
-      "include": ["#axr-gate"]
+      "include": ["#login"]
     },
     {
       "name": "Review page: link turned off",
       "setup": [{ "js": "seed.js", "call": "seedRevokedLink", "save": "link" }],
       "loggedOut": true,
       "url": "{link.path}",
-      "include": ["#axr-gate"]
+      "include": ["#login"]
+    },
+    {
+      "name": "Editor: Create a review link, in a dialog",
+      "setup": [{ "js": "seed.js", "call": "seedReview", "save": "s" }],
+      "editor": "{s.menu}",
+      "steps": [{ "evaluate": "(() => { wp.data.dispatch( 'core/edit-post' ).openGeneralSidebar( 'edit-post/document' ); if ( ! wp.data.select( 'core/editor' ).isEditorPanelOpened( 'axle-review/axle-review-share' ) ) { wp.data.dispatch( 'core/editor' ).toggleEditorPanelOpened( 'axle-review/axle-review-share' ); } })()" }, { "waitFor": ".axr-create__open" }, { "click": ".axr-create__open" }, { "click": ".axr-create-modal button:has-text('More options')" }, { "waitFor": ".axr-create__more" }],
+      "include": [".axr-create-modal"],
+      "cleanup": [{ "js": "seed.js", "call": "unseedReview" }]
+    },
+    {
+      "name": "Editor: a live page, Ask for review of a change",
+      "setup": [{ "js": "seed.js", "call": "seedLivePost", "save": "s" }],
+      "editor": "{s.post}",
+      "steps": [{ "evaluate": "(() => { wp.data.dispatch( 'core/edit-post' ).openGeneralSidebar( 'edit-post/document' ); if ( ! wp.data.select( 'core/editor' ).isEditorPanelOpened( 'axle-review/axle-review-share' ) ) { wp.data.dispatch( 'core/editor' ).toggleEditorPanelOpened( 'axle-review/axle-review-share' ); } })()" }, { "waitFor": ".axr-change__request" }],
+      "include": [".axr-share"],
+      "cleanup": [{ "js": "seed.js", "call": "unseedReview" }]
+    },
+    {
+      "name": "Editor: a working copy, Publish the change",
+      "setup": [{ "js": "seed.js", "call": "seedWorkingCopy", "save": "s" }],
+      "editor": "{s.copy}",
+      "steps": [{ "evaluate": "(() => { wp.data.dispatch( 'core/edit-post' ).openGeneralSidebar( 'edit-post/document' ); if ( ! wp.data.select( 'core/editor' ).isEditorPanelOpened( 'axle-review/axle-review-share' ) ) { wp.data.dispatch( 'core/editor' ).toggleEditorPanelOpened( 'axle-review/axle-review-share' ); } })()" }, { "waitFor": ".axr-change__actions" }],
+      "include": [".axr-share"],
+      "cleanup": [{ "js": "seed.js", "call": "unseedReview" }]
+    },
+    {
+      "name": "Editor: asking before publishing the change",
+      "setup": [{ "js": "seed.js", "call": "seedWorkingCopy", "save": "s" }, ["option", "update", "axle_review_settings", "{\"gate_enabled\":false}", "--format=json"]],
+      "editor": "{s.copy}",
+      "steps": [{ "evaluate": "(() => { wp.data.dispatch( 'core/edit-post' ).openGeneralSidebar( 'edit-post/document' ); if ( ! wp.data.select( 'core/editor' ).isEditorPanelOpened( 'axle-review/axle-review-share' ) ) { wp.data.dispatch( 'core/editor' ).toggleEditorPanelOpened( 'axle-review/axle-review-share' ); } })()" }, { "waitFor": ".axr-change__publish" }, { "click": ".axr-change__publish" }, { "waitFor": ".axr-confirm-modal" }],
+      "include": [".axr-confirm-modal"],
+      "cleanup": [{ "js": "seed.js", "call": "unseedReview" }]
+    },
+    {
+      "name": "Review page: a change, with the live page as the baseline",
+      "setup": [{ "js": "seed.js", "call": "seedWorkingCopy", "save": "s" }],
+      "loggedOut": true,
+      "url": "{s.link.path}",
+      "steps": [{ "waitFor": "#axr-changes" }],
+      "include": ["#axr-toolbar", "#axr-changes"],
+      "cleanup": [{ "js": "seed.js", "call": "unseedReview" }]
     }
   ],
   "skip": {}

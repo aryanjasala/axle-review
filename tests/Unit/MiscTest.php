@@ -73,11 +73,11 @@ final class MiscTest extends ReviewTestCase {
 		);
 		Functions\when( 'current_user_can' )->justReturn( true );
 
-		$abilities = new Abilities( new Settings(), new Links(), new Events(), new Notes(), new Gate( new Settings(), new Notes() ), $this->approvals() );
+		$abilities = new Abilities( new Settings(), new Links(), new Events(), new Notes(), new Gate( new Settings(), new Notes() ), $this->approvals(), new \AryanX\Axle\Review\Changes( new Gate( new Settings(), new Notes() ) ) );
 		$abilities->register_abilities();
 
 		$this->assertSame(
-			array( 'list-notes', 'get-note-thread', 'add-note', 'resolve-note', 'reopen-note', 'get-publish-readiness', 'get-review-state', 'list-review-links', 'create-review-link', 'revoke-review-link' ),
+			array( 'list-notes', 'get-note-thread', 'add-note', 'resolve-note', 'reopen-note', 'get-publish-readiness', 'get-review-state', 'list-review-links', 'create-review-link', 'revoke-review-link', 'request-change-review', 'publish-change', 'discard-change', 'undo-change' ),
 			array_map( static fn( $name ) => substr( $name, strlen( 'axle-review/' ) ), array_keys( $registered ) )
 		);
 		$this->assertTrue( $registered['axle-review/list-notes']['annotations']['readonly'] );
@@ -86,6 +86,11 @@ final class MiscTest extends ReviewTestCase {
 		$this->assertTrue( $registered['axle-review/resolve-note']['annotations']['idempotent'] );
 		$this->assertTrue( $registered['axle-review/revoke-review-link']['annotations']['destructive'] );
 		$this->assertFalse( $registered['axle-review/add-note']['annotations']['destructive'] );
+		$this->assertFalse( $registered['axle-review/request-change-review']['annotations']['destructive'] );
+		$this->assertTrue( $registered['axle-review/publish-change']['annotations']['destructive'] );
+		$this->assertFalse( $registered['axle-review/publish-change']['annotations']['readonly'] );
+		$this->assertTrue( $registered['axle-review/discard-change']['annotations']['idempotent'] );
+		$this->assertTrue( $registered['axle-review/undo-change']['annotations']['destructive'] );
 		$this->assertTrue( $registered['axle-review/add-note']['mcp']['public'] );
 	}
 
@@ -118,6 +123,22 @@ final class MiscTest extends ReviewTestCase {
 		$this->wpdb->vars[]  = 0;
 		$this->wpdb->lists[] = array();
 		( new Privacy( new Links(), new Events() ) )->erase( 'legal@example.com' );
+	}
+
+	public function test_the_privacy_text_names_the_review_cookies(): void {
+		$text = '';
+		Functions\when( 'wp_add_privacy_policy_content' )->alias(
+			static function ( $name, $content ) use ( &$text ) {
+				$text = $content;
+			}
+		);
+		Functions\when( 'wp_kses_post' )->returnArg();
+
+		( new Privacy( new Links(), new Events() ) )->policy_text();
+
+		$this->assertStringContainsString( 'axr_', $text );
+		$this->assertStringContainsString( 'axr_step_', $text );
+		$this->assertStringContainsString( '12 hours', $text );
 	}
 
 	public function test_uninstall_keeps_guest_notes_unless_filtered(): void {

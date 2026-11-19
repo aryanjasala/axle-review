@@ -285,7 +285,8 @@ final class Privacy implements Service {
 		}
 
 		$text = '<p>' . esc_html__( 'When we share a draft with you for review, we keep the name you give and, if the link is locked to your email address, that address, so we can send you a one-time code. Notes you leave, and your answer if you approve the draft or ask for changes, are stored with the post as editorial notes, with your name, your comment and your email address.', 'axle-review' ) . '</p>' .
-			'<p>' . esc_html__( 'For each review link we record when it was opened, an anonymised IP address and your browser family (for example Firefox), for 90 days. You can ask us to export or erase this data.', 'axle-review' ) . '</p>';
+			'<p>' . esc_html__( 'For each review link we record when it was opened, an anonymised IP address and your browser family (for example Firefox), for 90 days. You can ask us to export or erase this data.', 'axle-review' ) . '</p>' .
+			'<p>' . esc_html__( 'The review page sets one cookie for each review link you open, named axr_ followed by the link number. It keeps you signed in to that one draft, so you can come back to it, and it ends after 12 hours or when the link ends. If the link has an email code and a password, a second short cookie named axr_step_ followed by the link number remembers that you passed the code, for 15 minutes. Neither cookie is used for tracking, and neither is set for people who do not open a review link.', 'axle-review' ) . '</p>';
 
 		wp_add_privacy_policy_content( __( 'Axle Review', 'axle-review' ), wp_kses_post( $text ) );
 	}

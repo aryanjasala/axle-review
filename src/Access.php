@@ -184,6 +184,10 @@ final class Access {
 	/**
 	 * A token for the logged-out forms (code and password), bound to the link.
 	 *
+	 * Logged-out visitors have no WordPress nonce, so this signed token is the
+	 * CSRF protection for those forms: it proves the form came from this site's
+	 * gate page for this link, and it expires after a day or two.
+	 *
 	 * @param int $link_id Link ID.
 	 * @return string
 	 */
@@ -237,55 +241,134 @@ final class Access {
 	}
 
 	/**
-	 * Transient keys of the failure counters: per link and per IP address.
+	 * Transient key of the failure counter of one visitor (by IP address).
 	 *
-	 * @param int $link_id Link ID.
-	 * @return string[]
+	 * @return string
 	 */
-	private static function fail_keys( int $link_id ): array {
-		return array(
-			'axle_review_fails_link_' . $link_id,
-			'axle_review_fails_ip_' . substr( md5( Events::raw_ip() . wp_salt( 'nonce' ) ), 0, 16 ),
-		);
+	private static function ip_fail_key(): string {
+		return 'axle_review_fails_ip_' . substr( md5( Events::raw_ip() . wp_salt( 'nonce' ) ), 0, 16 );
 	}
 
 	/**
-	 * Whether the link or the visitor is locked out after too many failures.
+	 * Transient key of the backstop counter of one link.
+	 *
+	 * @param int $link_id Link ID.
+	 * @return string
+	 */
+	private static function link_fail_key( int $link_id ): string {
+		return 'axle_review_fails_link_' . $link_id;
+	}
+
+	/**
+	 * How many failures from all visitors together lock a link, however many
+	 * addresses they come from. Far above the per-visitor limit, so one person
+	 * holding a forwarded link cannot lock the real reviewer out.
+	 *
+	 * @return int
+	 */
+	public static function link_ceiling(): int {
+		$default = self::code_rules()['tries'] * 10;
+
+		/**
+		 * Filters how many wrong codes or passwords, from all visitors together,
+		 * lock a link for 15 minutes. A single visitor is stopped much sooner, by
+		 * the per-visitor limit (axle_review_code_max_tries).
+		 *
+		 * @param int $ceiling Default ten times the per-visitor limit, between 5 and 500.
+		 */
+		return max( 5, min( 500, (int) apply_filters( 'axle_review_link_fail_ceiling', $default ) ) );
+	}
+
+	/**
+	 * Whether the visitor is locked out after too many failures, or the link
+	 * after a flood of them from many visitors.
 	 *
 	 * @param int $link_id Link ID.
 	 * @return bool
 	 */
 	public function locked( int $link_id ): bool {
-		$tries = self::code_rules()['tries'];
-		foreach ( self::fail_keys( $link_id ) as $key ) {
-			if ( (int) get_transient( $key ) >= $tries ) {
-				return true;
-			}
-		}
-
-		return false;
+		return (int) get_transient( self::ip_fail_key() ) >= self::code_rules()['tries'] || (int) get_transient( self::link_fail_key( $link_id ) ) >= self::link_ceiling();
 	}
 
 	/**
-	 * Counts a failed code or password.
+	 * Counts a failed code or password: always against the visitor's address,
+	 * and against the link's backstop. When the visitor reaches the limit the
+	 * link's creator is told.
 	 *
-	 * @param int $link_id Link ID.
+	 * @param array $link Link.
 	 */
-	private function fail( int $link_id ): void {
-		foreach ( self::fail_keys( $link_id ) as $key ) {
-			set_transient( $key, (int) get_transient( $key ) + 1, 15 * MINUTE_IN_SECONDS );
+	private function fail( array $link ): void {
+		$link_id = (int) $link['id'];
+		$ip      = (int) get_transient( self::ip_fail_key() ) + 1;
+		set_transient( self::ip_fail_key(), $ip, 15 * MINUTE_IN_SECONDS );
+		set_transient( self::link_fail_key( $link_id ), (int) get_transient( self::link_fail_key( $link_id ) ) + 1, 15 * MINUTE_IN_SECONDS );
+
+		$limit = self::code_rules()['tries'];
+		if ( $limit === $ip ) {
+			$this->tell_creator( $link );
 		}
 	}
 
 	/**
-	 * Clears the failure counters after a success.
-	 *
-	 * @param int $link_id Link ID.
+	 * Clears the visitor's failure counter after a success. The link's backstop
+	 * is left to run out, so a guesser cannot reset it by passing once.
 	 */
-	private function clear_fails( int $link_id ): void {
-		foreach ( self::fail_keys( $link_id ) as $key ) {
-			delete_transient( $key );
+	private function clear_fails(): void {
+		delete_transient( self::ip_fail_key() );
+	}
+
+	/**
+	 * Emails the person who made a link when someone failed its code or
+	 * password too often, with a pointer to Revoke and Ask again. At most one
+	 * email an hour for each link.
+	 *
+	 * @param array $link Link.
+	 */
+	private function tell_creator( array $link ): void {
+		$link_id = (int) $link['id'];
+		$guard   = 'axle_review_guess_mail_' . $link_id;
+		if ( get_transient( $guard ) ) {
+			return;
 		}
+		set_transient( $guard, 1, HOUR_IN_SECONDS );
+
+		$this->events->add( $link_id, 'guess_alert' );
+
+		/**
+		 * Fires when someone failed a link's code or password as often as the
+		 * limit allows (default 5 times) and the link's creator was told.
+		 *
+		 * @param array $link The link.
+		 */
+		do_action( 'axle_review_link_guessing', $link );
+
+		$user = (int) $link['created_by'] ? get_userdata( (int) $link['created_by'] ) : false;
+		if ( ! $user || ! $user->user_email ) {
+			return;
+		}
+
+		$label = '' !== (string) $link['label'] ? (string) $link['label'] : sprintf(
+			/* translators: %d: link ID. */
+			__( 'Link %d', 'axle-review' ),
+			$link_id
+		);
+		$site = wp_specialchars_decode( (string) get_bloginfo( 'name' ), ENT_QUOTES );
+
+		/* translators: 1: site name, 2: link label. */
+		$subject = sprintf( __( '[%1$s] Someone keeps failing the code on "%2$s"', 'axle-review' ), $site, $label );
+		$message = sprintf(
+			/* translators: 1: link label, 2: number of wrong tries, 3: address of the Review Links screen. */
+			__( "Someone failed the code or password of the review link \"%1\$s\" %2\$d times in a row. They are locked out for 15 minutes.\n\nIf this is not the person you shared it with, revoke the link. If it is, ask them again and they get a new link.\n\nRevoke or ask again here:\n%3\$s", 'axle-review' ),
+			$label,
+			self::code_rules()['tries'],
+			Admin\LinksPage::url( array( 'post_id' => (int) $link['post_id'] ) )
+		);
+
+		$subject = Alerts::subject( $subject, 'guessing', array( 'link' => $link ) );
+		$message = Alerts::message( $message, 'guessing', array( 'link' => $link ) );
+
+		// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.wp_mail_wp_mail -- One security notice to the link's creator, at most once an hour.
+		wp_mail( $user->user_email, $subject, $message );
 	}
 
 	/**
@@ -316,11 +399,25 @@ final class Access {
 			$code .= (string) random_int( 0, 9 );
 		}
 
+		// A second click must not kill the first email: the last two codes both work.
+		$now   = time();
+		$state = self::code_state( (int) $link['id'], $now );
+		$keep  = $state ? array_slice( $state['codes'], 0, self::codes_kept() - 1 ) : array();
+		$codes = array_merge(
+			array(
+				array(
+					'hash'  => self::sign( 'code|' . (int) $link['id'] . '|' . $code ),
+					'until' => $now + $rules['ttl'],
+				),
+			),
+			$keep
+		);
+
 		set_transient(
 			'axle_review_code_' . (int) $link['id'],
 			array(
-				'hash'  => self::sign( 'code|' . (int) $link['id'] . '|' . $code ),
-				'tries' => 0,
+				'codes' => $codes,
+				'tries' => $state ? $state['tries'] : 0,
 			),
 			$rules['ttl']
 		);
@@ -357,7 +454,72 @@ final class Access {
 	}
 
 	/**
+	 * How many of the latest codes stay valid.
+	 *
+	 * @return int
+	 */
+	public static function codes_kept(): int {
+		/**
+		 * Filters how many of the latest email codes work at the same time, so a
+		 * second "Email me a code" does not make the first email useless.
+		 *
+		 * @param int $count Default 2, between 1 and 5.
+		 */
+		return max( 1, min( 5, (int) apply_filters( 'axle_review_codes_kept', 2 ) ) );
+	}
+
+	/**
+	 * The stored codes of a link that have not run out.
+	 *
+	 * @param int $link_id Link ID.
+	 * @param int $now     Unix time.
+	 * @return array{codes: array<int, array{hash: string, until: int}>, tries: int}|null Null when none is valid.
+	 */
+	public static function code_state( int $link_id, int $now ): ?array {
+		$stored = get_transient( 'axle_review_code_' . $link_id );
+		if ( ! is_array( $stored ) ) {
+			return null;
+		}
+
+		$codes = array();
+		if ( isset( $stored['codes'] ) && is_array( $stored['codes'] ) ) {
+			foreach ( $stored['codes'] as $entry ) {
+				if ( is_array( $entry ) && isset( $entry['hash'], $entry['until'] ) && (int) $entry['until'] > $now ) {
+					$codes[] = array(
+						'hash'  => (string) $entry['hash'],
+						'until' => (int) $entry['until'],
+					);
+				}
+			}
+		} elseif ( isset( $stored['hash'] ) ) {
+			// A code stored by an older version: its lifetime is not known, so it keeps the default.
+			$codes[] = array(
+				'hash'  => (string) $stored['hash'],
+				'until' => $now + self::code_rules()['ttl'],
+			);
+		}
+
+		return $codes ? array(
+			'codes' => $codes,
+			'tries' => (int) ( $stored['tries'] ?? 0 ),
+		) : null;
+	}
+
+	/**
+	 * Whether a code was sent for the link and still works.
+	 *
+	 * @param int $link_id Link ID.
+	 * @return bool
+	 */
+	public static function has_live_code( int $link_id ): bool {
+		return null !== self::code_state( $link_id, time() );
+	}
+
+	/**
 	 * Checks an email code.
+	 *
+	 * A wrong try never lengthens a code's life. After the allowed number of
+	 * wrong tries the codes are dropped and the reviewer asks for a new one.
 	 *
 	 * @param array  $link Link.
 	 * @param string $code Code typed.
@@ -369,24 +531,33 @@ final class Access {
 			return new \WP_Error( 'axle_review_locked', __( 'Too many tries. Wait 15 minutes and try again.', 'axle-review' ) );
 		}
 
-		$stored = get_transient( 'axle_review_code_' . $link_id );
+		$now    = time();
+		$state  = self::code_state( $link_id, $now );
 		$code   = (string) preg_replace( '/\D/', '', $code );
+		$digest = self::sign( 'code|' . $link_id . '|' . $code );
 
-		if ( is_array( $stored ) && '' !== $code && hash_equals( (string) $stored['hash'], self::sign( 'code|' . $link_id . '|' . $code ) ) ) {
-			delete_transient( 'axle_review_code_' . $link_id );
-			$this->clear_fails( $link_id );
-			$this->events->add( $link_id, 'code_ok' );
-			return true;
+		if ( $state && '' !== $code ) {
+			foreach ( $state['codes'] as $entry ) {
+				if ( hash_equals( $entry['hash'], $digest ) ) {
+					delete_transient( 'axle_review_code_' . $link_id );
+					$this->clear_fails();
+					$this->events->add( $link_id, 'code_ok' );
+					return true;
+				}
+			}
 		}
 
-		$this->fail( $link_id );
+		$this->fail( $link );
 		$this->events->add( $link_id, 'code_fail' );
-		if ( is_array( $stored ) ) {
-			$stored['tries'] = (int) $stored['tries'] + 1;
-			if ( $stored['tries'] >= self::code_rules()['tries'] ) {
+		if ( $state ) {
+			++$state['tries'];
+			if ( $state['tries'] >= self::code_rules()['tries'] ) {
 				delete_transient( 'axle_review_code_' . $link_id );
+				$this->tell_creator( $link );
 			} else {
-				set_transient( 'axle_review_code_' . $link_id, $stored, self::code_rules()['ttl'] );
+				// Same end time as before: a wrong try does not give the code more time.
+				$left = max( 1, (int) max( array_column( $state['codes'], 'until' ) ) - $now );
+				set_transient( 'axle_review_code_' . $link_id, $state, $left );
 			}
 		}
 
@@ -414,11 +585,11 @@ final class Access {
 		}
 
 		if ( '' !== $password && wp_check_password( $password, (string) $link['password_hash'] ) ) {
-			$this->clear_fails( $link_id );
+			$this->clear_fails();
 			return true;
 		}
 
-		$this->fail( $link_id );
+		$this->fail( $link );
 		$this->events->add( $link_id, 'password_fail' );
 
 		return new \WP_Error( 'axle_review_bad_password', __( 'That password is wrong.', 'axle-review' ) );

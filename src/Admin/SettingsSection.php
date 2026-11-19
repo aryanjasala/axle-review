@@ -147,7 +147,7 @@ final class SettingsSection implements Service {
 			'<p>%1$s <a href="%2$s">%3$s</a></p>',
 			esc_html__( 'Share drafts for review and collect feedback as block notes. Each user picks their own email alerts on their profile.', 'axle-review' ),
 			esc_url( LinksPage::url() ),
-			esc_html__( 'Tools > Review Links', 'axle-review' )
+			esc_html__( 'Dashboard > Notes > Review links', 'axle-review' )
 		);
 	}
 

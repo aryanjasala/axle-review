@@ -31,6 +31,13 @@ abstract class ReviewTestCase extends TestCase {
 	protected $transients = array();
 
 	/**
+	 * The lifetime each transient was last set with, in seconds.
+	 *
+	 * @var array<string, int>
+	 */
+	protected $transient_ttl = array();
+
+	/**
 	 * Comment meta, keyed by comment ID then key.
 	 *
 	 * @var array<int, array<string, mixed>>
@@ -53,6 +60,7 @@ abstract class ReviewTestCase extends TestCase {
 		$this->wpdb       = new \Axr_Fake_Wpdb();
 		$wpdb             = $this->wpdb;
 		$this->transients = array();
+		$this->transient_ttl = array();
 		$this->comment_meta = array();
 
 		Functions\when( 'wp_salt' )->justReturn( 'test-salt' );
@@ -74,8 +82,9 @@ abstract class ReviewTestCase extends TestCase {
 		);
 		Functions\when( 'get_transient' )->alias( fn( $key ) => $this->transients[ $key ] ?? false );
 		Functions\when( 'set_transient' )->alias(
-			function ( $key, $value ) {
-				$this->transients[ $key ] = $value;
+			function ( $key, $value, $ttl = 0 ) {
+				$this->transients[ $key ]    = $value;
+				$this->transient_ttl[ $key ] = $ttl;
 				return true;
 			}
 		);
