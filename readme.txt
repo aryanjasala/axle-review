@@ -4,7 +4,7 @@ Tags: notes, review, draft, preview, feedback
 Requires at least: 6.9
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 1.1.0
+Stable tag: 1.2.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -154,6 +154,10 @@ Yes, per site. A network admin can pause review links on every site at once from
 8. A working copy of a live page in the editor: share it, then "Publish the change" when it is approved.
 
 == Changelog ==
+
+= 1.2.0 =
+* Fix: add a nonce to the review link forms and keep notices to the plugin's screens
+* New: review a change to a live page before it goes live
 
 = 1.1.0 =
 * Fix: only list and count notes on posts the user may edit
