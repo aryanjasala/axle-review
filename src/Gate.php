@@ -390,7 +390,7 @@ final class Gate implements Service {
 		}
 
 		delete_transient( $key );
-		printf( '<div class="notice notice-error axr-gate-notice"><p>%s</p></div>', esc_html( $message ) );
+		printf( '<div class="notice notice-error axr-gate-notice is-dismissible"><p>%s</p></div>', esc_html( $message ) );
 	}
 
 	/**

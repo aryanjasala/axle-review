@@ -133,6 +133,26 @@ test.describe( 'Axle Review', () => {
 		await stranger.context.close();
 	} );
 
+	test( 'a gate form without its nonce sends nothing', async ( { browser } ) => {
+		const postId = createDraft( 'Nonce check' );
+		const { url } = createLink( postId, [ '--email=nonce@example.com' ] );
+		const { context, page } = await guest( browser );
+
+		await page.goto( url );
+		// Drop the WordPress nonce and keep the signed token: the gate refuses and no email goes out.
+		await page.locator( '#axr-send-form input[name="axr_nonce"]' ).evaluate( ( input ) => input.remove() );
+		await page.getByRole( 'button', { name: /Email me a code/ } ).click();
+		await expect( page.locator( '#login_error' ) ).toContainText( 'The form expired' );
+		expect( mail().filter( ( item ) => item.to === 'nonce@example.com' ) ).toHaveLength( 0 );
+
+		// The same form with its nonce works.
+		await page.goto( url );
+		await page.getByRole( 'button', { name: /Email me a code/ } ).click();
+		await expect( page ).toHaveTitle( /Enter your code/ );
+		expect( mail().filter( ( item ) => item.to === 'nonce@example.com' ) ).toHaveLength( 1 );
+		await context.close();
+	} );
+
 	test( 'an email-locked link asks for a code and locks out after five wrong ones', async ( { browser } ) => {
 		const postId = createDraft( 'Legal terms update' );
 		const { id, url } = createLink( postId, [ '--email=legal@example.com' ] );

@@ -315,6 +315,12 @@ final class LinksPage implements Service {
 			return;
 		}
 
+		// Only on this plugin's own screens, never across wp-admin.
+		$screen = function_exists( 'get_current_screen' ) ? get_current_screen() : null;
+		if ( ! $screen || false === strpos( (string) $screen->id, 'axle-review' ) ) {
+			return;
+		}
+
 		printf(
 			'<div class="notice notice-warning axr-paused-notice"><p>%1$s <a href="%2$s">%3$s</a></p></div>',
 			esc_html__( 'Review links are paused. Nobody can open a review link until they are resumed.', 'axle-review' ),
