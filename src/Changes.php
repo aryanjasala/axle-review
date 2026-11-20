@@ -1032,7 +1032,7 @@ final class Changes implements Service {
 		}
 
 		delete_transient( $key );
-		printf( '<div class="notice notice-error"><p>%s</p></div>', esc_html( $message ) );
+		printf( '<div class="notice notice-error is-dismissible"><p>%s</p></div>', esc_html( $message ) );
 	}
 
 	/**

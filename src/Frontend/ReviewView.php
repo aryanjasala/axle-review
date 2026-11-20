@@ -537,13 +537,14 @@ final class ReviewView implements Service {
 			}
 		}
 
-		// phpcs:ignore WordPress.Security.NonceVerification.Missing -- Logged-out form; checked with its own signed token below.
+		// Every gate form carries a WordPress nonce for this link and a signed,
+		// link-bound token. Both must pass before anything is sent or checked.
+		$nonce  = isset( $_POST['axr_nonce'] ) ? sanitize_text_field( wp_unslash( $_POST['axr_nonce'] ) ) : '';
+		$valid  = $this->link && '' !== $nonce && false !== wp_verify_nonce( $nonce, self::nonce_action( (int) $this->link['id'] ) );
 		$action = isset( $_POST['axr_action'] ) ? sanitize_key( wp_unslash( $_POST['axr_action'] ) ) : '';
 		if ( $this->link && '' !== $action && in_array( $this->state, array( 'code', 'password' ), true ) ) {
-			// This token is CSRF protection for logged-out visitors, who have no nonce: it is signed, bound to this link, and valid for two days.
-			// phpcs:ignore WordPress.Security.NonceVerification.Missing -- Same.
 			$token = isset( $_POST['axr_form'] ) ? sanitize_text_field( wp_unslash( $_POST['axr_form'] ) ) : '';
-			if ( ! Access::check_form_token( (int) $this->link['id'], $token ) ) {
+			if ( ! $valid || ! Access::check_form_token( (int) $this->link['id'], $token ) ) {
 				$error = __( 'The form expired. Try again.', 'axle-review' );
 				$step2 = 'verify_code' === $action;
 			} else {
@@ -736,6 +737,30 @@ final class ReviewView implements Service {
 	}
 
 	/**
+	 * The nonce action for one link's gate forms.
+	 *
+	 * @param int $link_id Link ID.
+	 */
+	public static function nonce_action( int $link_id ): string {
+		return 'axle_review_gate_' . $link_id;
+	}
+
+	/**
+	 * Hidden fields every gate form carries: a WordPress nonce for this link
+	 * and the signed, link-bound form token.
+	 *
+	 * @param int $link_id Link ID.
+	 * @return string Escaped HTML.
+	 */
+	private function form_fields( int $link_id ): string {
+		return sprintf(
+			'<input type="hidden" name="axr_nonce" value="%1$s"><input type="hidden" name="axr_form" value="%2$s">',
+			esc_attr( wp_create_nonce( self::nonce_action( $link_id ) ) ),
+			esc_attr( Access::form_token( $link_id ) )
+		);
+	}
+
+	/**
 	 * Step 1: one button that sends the code.
 	 *
 	 * @param string $action  Form action URL.
@@ -759,7 +784,7 @@ final class ReviewView implements Service {
 		</p>
 		<form method="post" action="<?php echo esc_url( $action ); ?>" id="axr-send-form">
 			<input type="hidden" name="axr_action" value="send_code">
-			<input type="hidden" name="axr_form" value="<?php echo esc_attr( Access::form_token( $link_id ) ); ?>">
+			<?php echo $this->form_fields( $link_id ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Escaped in form_fields(). ?>
 			<p class="submit"><button type="submit" class="button button-primary button-large"><?php esc_html_e( 'Email me a code', 'axle-review' ); ?></button></p>
 		</form>
 		<?php
@@ -780,7 +805,7 @@ final class ReviewView implements Service {
 		?>
 		<form method="post" action="<?php echo esc_url( $action ); ?>" id="axr-code-form">
 			<input type="hidden" name="axr_action" value="verify_code">
-			<input type="hidden" name="axr_form" value="<?php echo esc_attr( Access::form_token( $link_id ) ); ?>">
+			<?php echo $this->form_fields( $link_id ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Escaped in form_fields(). ?>
 			<p>
 				<label for="axr-code"><?php esc_html_e( 'Code', 'axle-review' ); ?></label>
 				<input type="text" id="axr-code" name="axr_code" class="input" inputmode="numeric" pattern="[0-9]{<?php echo (int) $length; ?>}" maxlength="<?php echo (int) $length; ?>" autocomplete="one-time-code" spellcheck="false" required autofocus>
@@ -789,7 +814,7 @@ final class ReviewView implements Service {
 		</form>
 		<form method="post" action="<?php echo esc_url( $action ); ?>" id="axr-resend-form">
 			<input type="hidden" name="axr_action" value="send_code">
-			<input type="hidden" name="axr_form" value="<?php echo esc_attr( Access::form_token( $link_id ) ); ?>">
+			<?php echo $this->form_fields( $link_id ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Escaped in form_fields(). ?>
 			<p style="margin-top:16px"><button type="submit" class="button button-large"><?php esc_html_e( 'Send a new code', 'axle-review' ); ?></button></p>
 		</form>
 		<?php
@@ -809,7 +834,7 @@ final class ReviewView implements Service {
 		<p class="axr-gate__text"><?php esc_html_e( 'This link has a password. The person who sent it can tell you what it is.', 'axle-review' ); ?></p>
 		<form method="post" action="<?php echo esc_url( $action ); ?>" id="axr-password-form">
 			<input type="hidden" name="axr_action" value="password">
-			<input type="hidden" name="axr_form" value="<?php echo esc_attr( Access::form_token( $link_id ) ); ?>">
+			<?php echo $this->form_fields( $link_id ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Escaped in form_fields(). ?>
 			<p>
 				<label for="axr-password"><?php esc_html_e( 'Password', 'axle-review' ); ?></label>
 				<input type="password" id="axr-password" name="axr_password" class="input" autocomplete="current-password" required autofocus>
